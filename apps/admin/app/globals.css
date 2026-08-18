@@ -1,0 +1,5 @@
+* { box-sizing: border-box; } body { margin: 0; font-family: Arial, sans-serif; color: #1d2939; background: #f5f7fa; }
+.shell { min-height: 100vh; display: grid; grid-template-columns: 240px 1fr; }
+aside { background: #172033; color: white; padding: 28px; } aside a { color: #d9e4f5; display: block; margin: 20px 0; }
+main { padding: 48px; } .card { background: white; padding: 28px; border-radius: 12px; border: 1px solid #e0e5ec; }
+

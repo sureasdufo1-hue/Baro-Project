@@ -1,0 +1,6 @@
+packages:
+  - apps/web
+  - apps/admin
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true
