@@ -5,6 +5,7 @@ description = "ClaimLens AI modular-monolith foundation"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.16,<2",
+  "boto3>=1.40,<2",
   "email-validator>=2.2,<3",
   "fastapi>=0.116,<1",
   "httpx>=0.28,<1",
@@ -13,6 +14,7 @@ dependencies = [
   "pwdlib[argon2]>=0.2,<1",
   "pyjwt>=2.10,<3",
   "python-json-logger>=3.3,<4",
+  "python-multipart>=0.0.20,<1",
   "redis>=6.2,<7",
   "rq>=2.4,<3",
   "sqlalchemy>=2.0,<3",

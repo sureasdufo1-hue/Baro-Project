@@ -1,0 +1,7 @@
+"use client";
+import Link from "next/link";
+import {useParams} from "next/navigation";
+import {useEffect,useState} from "react";
+const api=process.env.NEXT_PUBLIC_API_URL??"http://localhost:8000";
+type Data={reviews:{review_status:string;review_type:string;requested_at:string}[];document_requests:{request_id:string;requested_document_type:string|null;requested_fact_type:string|null;user_message:string;request_status:string}[]};
+export default function ReviewStatusPage(){const {claimId}=useParams<{claimId:string}>();const [data,setData]=useState<Data|null>(null);useEffect(()=>{fetch(`${api}/api/claims/${claimId}/review-status`,{credentials:"include"}).then(async r=>{if(r.ok)setData(await r.json())})},[claimId]);if(!data)return <main><p>전문가 검토상태를 불러오는 중…</p></main>;return <main><h1>전문가 검토상태</h1><p className="notice">자동 분석으로 확정하기 어려운 항목을 전문가가 검토하고 있습니다.</p>{data.reviews.map((item,index)=><section className="card" key={index}><span className="status">{item.review_status}</span><h2>{item.review_type}</h2><p>요청일 {new Date(item.requested_at).toLocaleString("ko-KR")}</p></section>)}{data.document_requests.map(item=><section className="card warning" key={item.request_id}><h2>추가 확인이 필요합니다</h2><p>{item.user_message}</p><p>요청 서류: {item.requested_document_type??"지정 없음"} · 확인정보: {item.requested_fact_type??"지정 없음"}</p><Link className="button" href={`/claims/${claimId}/documents`}>서류 제출하기</Link></section>)}</main>}

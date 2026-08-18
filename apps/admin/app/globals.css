@@ -2,4 +2,4 @@
 .shell { min-height: 100vh; display: grid; grid-template-columns: 240px 1fr; }
 aside { background: #172033; color: white; padding: 28px; } aside a { color: #d9e4f5; display: block; margin: 20px 0; }
 main { padding: 48px; } .card { background: white; padding: 28px; border-radius: 12px; border: 1px solid #e0e5ec; }
-
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; } form { display:grid; gap:10px; } input,select,button { padding:10px; font:inherit; } button { background:#155eef; color:white; border:0; border-radius:6px; cursor:pointer; } table { width:100%; border-collapse:collapse; } th,td { padding:10px; border-bottom:1px solid #e0e5ec; text-align:left; }

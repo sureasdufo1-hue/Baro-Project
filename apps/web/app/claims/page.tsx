@@ -1,0 +1,7 @@
+"use client";
+import Link from "next/link";
+import {useEffect,useState} from "react";
+const api=process.env.NEXT_PUBLIC_API_URL??"http://localhost:8000";
+type Claim={claim_id:string;claim_number:string;title:string;claim_type:string;status:string;created_at:string};
+const labels:Record<string,string>={DRAFT:"작성 중",DOCUMENT_REQUIRED:"문서 필요",DOCUMENT_PROCESSING:"문서 분석 중",USER_VERIFICATION:"정보 확인",ASSESSING:"분석 중",MANUAL_REVIEW:"전문가 검토",COMPLETED:"완료",FAILED:"처리 실패",CANCELLED:"취소",CLOSED:"종료"};
+export default function ClaimsPage(){const [items,setItems]=useState<Claim[]>([]),[loaded,setLoaded]=useState(false);useEffect(()=>{fetch(`${api}/api/claims`,{credentials:"include"}).then(async r=>{if(r.ok)setItems(await r.json());setLoaded(true)})},[]);return <main><div className="actions spread"><h1>보험금 분석 Case</h1><Link className="button" href="/claims/new">새로운 보험금 분석</Link></div>{loaded&&items.length===0?<section className="card"><h2>아직 생성한 Case가 없습니다.</h2><p>등록한 보험계약을 선택해 분석 Case를 시작하세요.</p></section>:<div className="card-grid">{items.map(x=><section className="card" key={x.claim_id}><span className={`status ${x.status.toLowerCase()}`}>{labels[x.status]??x.status}</span><h2>{x.title}</h2><p>{x.claim_number}</p><p>{x.claim_type==="DISEASE"?"질병":x.claim_type==="INJURY"?"상해":"기타"} · {new Date(x.created_at).toLocaleDateString("ko-KR")}</p><Link href={`/claims/${x.claim_id}`}>상세보기</Link></section>)}</div>}</main>}

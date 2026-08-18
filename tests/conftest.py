@@ -7,7 +7,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.app.main import app
+from domain.assessment.models import AssessmentRuleResult, CoverageAssessment  # noqa: F401
 from domain.audit.models import AuditLog  # noqa: F401
+from domain.calculation.models import BenefitCalculation  # noqa: F401
+from domain.claim.models import Accident, Claim  # noqa: F401
+from domain.contract.models import ContractCoverage, InsuranceContract, Insured  # noqa: F401
+from domain.document.models import MedicalDocument  # noqa: F401
+from domain.evidence.models import Evidence  # noqa: F401
+from domain.fact.models import ExtractedFact, OCRResult, VerifiedFact  # noqa: F401
+from domain.policy.models import Coverage, InsuranceCompany  # noqa: F401
+from domain.review.models import AdditionalDocumentRequest, Review, ReviewAssignment  # noqa: F401
+from domain.rule.models import BenefitRule, RuleVersion  # noqa: F401
 from domain.user.models import Consent, User  # noqa: F401
 from infrastructure.database.base import Base
 from infrastructure.database.session import get_db

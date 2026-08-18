@@ -36,6 +36,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       SESSION_SECRET: compose-development-secret-change-before-production
       CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      OBJECT_STORAGE_PROVIDER: LOCAL_PRIVATE
+      LOCAL_OBJECT_STORAGE_ROOT: /app/.storage/private
+      MALWARE_SCANNER_PROVIDER: DEVELOPMENT
+      OCR_PROVIDER: DEVELOPMENT
+      AI_PROVIDER: DEVELOPMENT
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,13 +52,15 @@ services:
     environment: *backend_environment
     ports:
       - "8000:8000"
+    volumes:
+      - document_storage:/app/.storage/private
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -71,4 +78,4 @@ services:
 
 volumes:
   postgres_data:
-
+  document_storage:

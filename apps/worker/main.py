@@ -17,7 +17,14 @@ def enqueue_sample(value: str = "foundation") -> str:
 
 def run_worker() -> None:
     connection = Redis.from_url(get_settings().redis_url)
-    Worker([Queue("foundation", connection=connection)], connection=connection).work()
+    Worker(
+        [
+            Queue("document-ocr", connection=connection),
+            Queue("document-ai-extraction", connection=connection),
+            Queue("foundation", connection=connection),
+        ],
+        connection=connection,
+    ).work()
 
 
 if __name__ == "__main__":

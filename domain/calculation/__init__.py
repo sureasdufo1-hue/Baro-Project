@@ -1,0 +1,1 @@
+"""Deterministic benefit calculation domain."""

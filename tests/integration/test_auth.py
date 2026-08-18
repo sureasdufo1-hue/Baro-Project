@@ -23,9 +23,13 @@ def test_register_login_me_and_logout(
     assert logged_in.status_code == 200
     cookie = logged_in.headers["set-cookie"]
     assert "HttpOnly" in cookie
-    assert "SameSite=lax" in cookie
+    assert "SameSite=strict" in cookie
     assert client.get("/api/auth/me").status_code == 200
+    replay_token = client.cookies.get("claimlens_session")
+    assert replay_token is not None
     assert client.post("/api/auth/logout").status_code == 200
+    assert client.get("/api/auth/me").status_code == 401
+    client.cookies.set("claimlens_session", replay_token)
     assert client.get("/api/auth/me").status_code == 401
 
     events = list(db_session.scalars(select(AuditLog.event_type)))

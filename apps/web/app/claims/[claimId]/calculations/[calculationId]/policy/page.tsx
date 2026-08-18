@@ -1,0 +1,6 @@
+"use client";
+import {useParams} from "next/navigation";
+import {useEffect,useState} from "react";
+const api=process.env.NEXT_PUBLIC_API_URL??"http://localhost:8000";
+type Clause={evidence_id:string;policy_version_id:string;page_number:number|null;source_bbox:object|null;source_snapshot:Record<string,unknown>};
+export default function PolicyEvidencePage(){const {calculationId}=useParams<{calculationId:string}>();const [items,setItems]=useState<Clause[]>([]);useEffect(()=>{fetch(`${api}/api/calculations/${calculationId}/policy-evidence`,{credentials:"include"}).then(async r=>{if(r.ok)setItems(await r.json())})},[calculationId]);return <main><h1>근거 약관</h1><p className="notice">계산 당시 고정된 PolicyVersion과 Rule에 직접 연결된 조항만 표시합니다.</p>{items.map(item=><section className="card policy-clause" key={item.evidence_id}><span className="status">PolicyVersion {item.policy_version_id}</span><h2>{String(item.source_snapshot.article_number??"")} {String(item.source_snapshot.article_title??"")}</h2><p>{String(item.source_snapshot.clause_text??"")}</p><small>{item.page_number?`${item.page_number}쪽`:"페이지 정보 없음"}{item.source_bbox?" · 원문 위치정보 있음":""} · Hash {String(item.source_snapshot.text_hash??"없음")}</small></section>)}</main>}

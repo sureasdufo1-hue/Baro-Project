@@ -1,4 +1,4 @@
-export default function DashboardPage() {
-  return <main><section className="card"><h1>Dashboard</h1><p>Foundation이 준비되었습니다.</p><p>보험계약 및 Claim 기능은 다음 개발차수에서 추가됩니다.</p></section></main>;
-}
-
+"use client";
+import Link from "next/link";import {useEffect,useState} from "react";
+const api=process.env.NEXT_PUBLIC_API_URL??"http://localhost:8000";type Claim={claim_id:string;title:string;status:string};
+export default function DashboardPage(){const [contracts,setContracts]=useState<unknown[]>([]),[claims,setClaims]=useState<Claim[]>([]);useEffect(()=>{fetch(`${api}/api/contracts`,{credentials:"include"}).then(r=>r.ok?r.json():[]).then(setContracts);fetch(`${api}/api/claims`,{credentials:"include"}).then(r=>r.ok?r.json():[]).then(setClaims)},[]);const ongoing=claims.filter(x=>["DRAFT","DOCUMENT_REQUIRED","DOCUMENT_PROCESSING","USER_VERIFICATION","ASSESSING","MANUAL_REVIEW"].includes(x.status));return <main><h1>Dashboard</h1><div className="summary"><section className="card"><strong>{contracts.length}</strong><span>등록 보험계약</span></section><section className="card"><strong>{ongoing.length}</strong><span>진행 중 분석</span></section><section className="card"><strong>{claims.filter(x=>x.status==="COMPLETED").length}</strong><span>완료된 분석</span></section></div><section className="card"><div className="actions spread"><h2>최근 Claim</h2><Link href="/claims/new">새 분석 시작</Link></div>{claims.slice(0,5).map(x=><p key={x.claim_id}><Link href={`/claims/${x.claim_id}`}>{x.title}</Link> · {x.status}</p>)}{claims.length===0&&<p>아직 Claim이 없습니다.</p>}</section></main>}

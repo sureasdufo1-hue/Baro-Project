@@ -4,7 +4,35 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from apps.api.app.config import get_settings
+from domain.assessment.models import AssessmentRuleResult, CoverageAssessment  # noqa: F401
 from domain.audit.models import AuditLog  # noqa: F401
+from domain.calculation.models import BenefitCalculation  # noqa: F401
+from domain.claim.models import Accident, Claim  # noqa: F401
+from domain.contract.models import ContractCoverage, InsuranceContract, Insured  # noqa: F401
+from domain.document.models import MedicalDocument  # noqa: F401
+from domain.evidence.models import Evidence  # noqa: F401
+from domain.fact.models import ExtractedFact, OCRResult, VerifiedFact  # noqa: F401
+from domain.policy.models import (  # noqa: F401
+    Coverage,
+    CoverageAlias,
+    InsuranceCompany,
+    InsuranceProduct,
+    Policy,
+    PolicyClause,
+    PolicyVersion,
+    ProductVersion,
+)
+from domain.review.models import (  # noqa: F401
+    AdditionalDocumentRequest,
+    Review,
+    ReviewAssignment,
+)
+from domain.rule.models import (  # noqa: F401
+    BenefitRule,
+    BenefitRuleClause,
+    RuleCondition,
+    RuleVersion,
+)
 from domain.user.models import Consent, User  # noqa: F401
 from infrastructure.database.base import Base
 

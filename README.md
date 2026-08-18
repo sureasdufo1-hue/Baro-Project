@@ -2,7 +2,7 @@
 
 보험계약, 약관, 의료·사고 증빙을 구조화하여 담보별 지급요건과 예상 보험금을 검토하고 계산 근거까지 추적할 수 있도록 지원하는 시스템입니다.
 
-현재 구현 범위는 `CODEX-01 Foundation`입니다. 회원·동의·인증·RBAC·감사로그, API/Worker 실행 기반과 사용자·관리자 UI 셸만 제공합니다. 보험상품, 계약, Claim, 문서 업로드, OCR/AI, Rule, 보험금 계산과 Evidence는 아직 구현하지 않았습니다.
+현재 구현 범위는 `CODEX-12 MVP Release Candidate 검증`입니다. 계약·Claim·안전한 문서 처리·OCR/AI Fact 추출과 검증·약관/Rule 판단·결정론적 계산·Evidence·전문가 검토까지 연결되어 있습니다. 운영 배포 가능 여부와 알려진 제한은 [Release Candidate 보고서](docs/RELEASE_CANDIDATE.md)를 기준으로 판단합니다.
 
 ## Architecture
 
@@ -29,10 +29,20 @@ Copy-Item .env.example .env
 
 `.env`의 `SESSION_SECRET`을 반드시 변경하세요. 실제 비밀값은 커밋하지 않습니다. Production에서는 `COOKIE_SECURE=true`, 제한된 `CORS_ORIGINS`, 별도 Secret 관리가 필요합니다.
 
+Production은 S3-compatible private storage, ClamAV, HTTP OCR/AI adapter와 Redis 분산 Rate Limit이 모두 구성되지 않으면 시작을 거부합니다. 상세 설정과 미검증 항목은 [운영 종결 보고서](docs/OPERATIONAL_COMPLETION.md)를 참고하세요.
+
 ## Docker 개발환경
 
 ```powershell
 docker compose up --build
+```
+
+자동 Bootstrap과 backup/restore:
+
+```powershell
+.\scripts\bootstrap.ps1
+.\scripts\backup_database.ps1 -OutputPath .\backups\claimlens.dump
+.\scripts\restore_database.ps1 -InputPath .\backups\claimlens.dump
 ```
 
 PostgreSQL(`5432`), Redis(`6379`), FastAPI(`8000`), RQ Worker와 일회성 Alembic migration 서비스가 실행됩니다.
@@ -94,6 +104,7 @@ pnpm dev:admin
 | POST | `/api/auth/logout` | 로그아웃과 감사 기록 |
 | GET | `/api/auth/me` | 현재 사용자 |
 | GET | `/api/admin/status` | RBAC 검증용 관리자 Endpoint |
+| GET | `/metrics` | 보안/시스템 관리자 전용 운영 메트릭 |
 
 모든 응답에는 `X-Request-ID`가 포함됩니다. 오류는 `error.code`, `error.message`, `error.requestId` 구조를 사용합니다.
 
@@ -116,6 +127,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm test:e2e
 ```
 
 Docker:
@@ -126,17 +138,19 @@ docker compose config
 
 ## Repository 구조
 
-- `apps/web`: 사용자 Landing, 로그인, 회원가입, Dashboard 셸
-- `apps/admin`: 관리자 로그인·Layout·빈 Dashboard
-- `apps/api`: FastAPI, 인증·RBAC·오류·Request ID·Health
+- `apps/web`: 계약·Claim·문서·Fact 검증·산정 결과·Evidence 사용자 화면
+- `apps/admin`: 보험 Master와 전문가 Review 화면
+- `apps/api`: FastAPI 모듈형 모놀리스와 전체 MVP API
 - `apps/worker`: Redis/RQ worker 및 연결 검사용 Job
 - `domain/user`: User, Consent와 역할·상태 타입
 - `domain/audit`: AuditLog와 Foundation 이벤트
+- `domain/policy`: 회사·상품·상품버전·약관·약관버전·조항·표준담보
+- `domain/rule`: BenefitRule·RuleVersion·Condition·약관 근거 연결
+- `domain/contract`: Insured·InsuranceContract·ContractCoverage와 소유권 Service
 - `infrastructure/database`: SQLAlchemy Session과 Metadata
 - `infrastructure/queue`: Redis 연결
 - `migrations`: Alembic migration
 - `tests`: 단위·통합·보안 테스트
 - `docs/decisions`: 기술 결정 기록
 
-나머지 도메인 폴더는 이후 차수를 위한 경계만 표시하며 아직 비즈니스 로직을 포함하지 않습니다.
-
+Insurance Master는 [docs/INSURANCE_MASTER.md](docs/INSURANCE_MASTER.md), 계약 구조는 [docs/CONTRACT_DOMAIN.md](docs/CONTRACT_DOMAIN.md), 계산 근거사슬은 [docs/EVIDENCE_CHAIN.md](docs/EVIDENCE_CHAIN.md), 전문가 검토는 [docs/HUMAN_REVIEW.md](docs/HUMAN_REVIEW.md)를 참고하세요.

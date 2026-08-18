@@ -16,6 +16,7 @@ def record_audit(
     actor_user_id: UUID | None = None,
     object_type: str | None = None,
     object_id: str | None = None,
+    claim_id: UUID | None = None,
     before_value: dict[str, Any] | None = None,
     after_value: dict[str, Any] | None = None,
 ) -> None:
@@ -28,6 +29,7 @@ def record_audit(
             source_ip=source_ip,
             object_type=object_type,
             object_id=object_id,
+            claim_id=claim_id,
             before_value=before_value,
             after_value=after_value,
         )

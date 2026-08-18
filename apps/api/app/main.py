@@ -5,8 +5,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.app.config import get_settings
-from apps.api.app.middleware import RequestContextMiddleware
-from apps.api.app.routes import admin, auth, health
+from apps.api.app.middleware import RequestContextMiddleware, SecurityMiddleware
+from apps.api.app.routes import (
+    admin,
+    assessments,
+    auth,
+    calculations,
+    claims,
+    contracts,
+    documents,
+    evidence,
+    facts,
+    health,
+    insurance_master,
+    reviews,
+)
 from shared.errors import DomainError
 
 settings = get_settings()
@@ -14,6 +27,7 @@ logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s %(m
 
 app = FastAPI(title="ClaimLens API", version="0.1.0")
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(SecurityMiddleware, settings=settings)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -55,3 +69,20 @@ async def unexpected_error_handler(request: Request, _: Exception) -> JSONRespon
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(insurance_master.router)
+app.include_router(contracts.router)
+app.include_router(claims.router)
+app.include_router(documents.claim_router)
+app.include_router(documents.document_router)
+app.include_router(facts.claim_router)
+app.include_router(facts.document_router)
+app.include_router(facts.fact_router)
+app.include_router(assessments.claim_router)
+app.include_router(assessments.router)
+app.include_router(calculations.claim_router)
+app.include_router(calculations.assessment_router)
+app.include_router(calculations.router)
+app.include_router(evidence.claim_router)
+app.include_router(evidence.calculation_router)
+app.include_router(reviews.router)
+app.include_router(reviews.claim_router)
