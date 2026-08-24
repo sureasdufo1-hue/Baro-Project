@@ -83,6 +83,7 @@ def get_object_storage(settings: Settings = Depends(get_settings)) -> ObjectStor
             settings.s3_endpoint_url,
             settings.s3_access_key_id,
             settings.s3_secret_access_key,
+            settings.s3_server_side_encryption or None,
         )
     raise DomainError("STORAGE_UPLOAD_FAILED", "Object storage provider is not configured", 503)
 

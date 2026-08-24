@@ -39,23 +39,77 @@ services:
       timeout: 3s
       retries: 10
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-claimlens_local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-claimlens-local-secret-change-me}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-claimlens_local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-claimlens-local-secret-change-me}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb --ignore-existing local/claimlens-private &&
+      mc anonymous set none local/claimlens-private"
+
+  clamav:
+    image: clamav/clamav:latest
+    environment:
+      CLAMAV_NO_FRESHCLAM: "false"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+
   migrate:
     build:
       context: .
       dockerfile: Dockerfile.api
     command: ["alembic", "upgrade", "head"]
     environment: &backend_environment
-      APP_ENV: development
-      DATABASE_URL: postgresql+psycopg://claimlens:claimlens_dev@postgres:5432/claimlens
-      POLICY_DATABASE_URL: postgresql+psycopg://dbins_policy:dbins_policy_dev@policy-postgres:5432/dbins_policy
-      REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: compose-development-secret-change-before-production
-      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
-      OBJECT_STORAGE_PROVIDER: LOCAL_PRIVATE
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://claimlens:claimlens_dev@postgres:5432/claimlens}
+      POLICY_DATABASE_URL: ${POLICY_DATABASE_URL:-postgresql+psycopg://dbins_policy:dbins_policy_dev@policy-postgres:5432/dbins_policy}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SESSION_SECRET: ${SESSION_SECRET:-compose-development-secret-change-before-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      OBJECT_STORAGE_PROVIDER: ${OBJECT_STORAGE_PROVIDER:-LOCAL_PRIVATE}
       LOCAL_OBJECT_STORAGE_ROOT: /app/.storage/private
-      MALWARE_SCANNER_PROVIDER: DEVELOPMENT
-      OCR_PROVIDER: DEVELOPMENT
-      AI_PROVIDER: DEVELOPMENT
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-ap-northeast-2}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      MALWARE_SCANNER_PROVIDER: ${MALWARE_SCANNER_PROVIDER:-DEVELOPMENT}
+      CLAMAV_HOST: ${CLAMAV_HOST:-localhost}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      CLAMAV_TIMEOUT_SECONDS: ${CLAMAV_TIMEOUT_SECONDS:-10}
+      OCR_PROVIDER: ${OCR_PROVIDER:-DEVELOPMENT}
+      OCR_API_ENDPOINT: ${OCR_API_ENDPOINT:-}
+      OCR_API_KEY: ${OCR_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-DEVELOPMENT}
+      AI_API_ENDPOINT: ${AI_API_ENDPOINT:-}
+      AI_API_KEY: ${AI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +130,10 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
       interval: 10s
@@ -131,8 +189,13 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_started
 
 volumes:
   postgres_data:
   policy_postgres_data:
   document_storage:
+  minio_data:

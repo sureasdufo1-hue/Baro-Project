@@ -55,6 +55,7 @@ def process_ocr_job(ocr_result_id: str) -> None:
             settings.s3_endpoint_url,
             settings.s3_access_key_id,
             settings.s3_secret_access_key,
+            settings.s3_server_side_encryption or None,
         )
     else:
         raise DomainError("STORAGE_READ_FAILED", "Object storage is not configured", 503)

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     s3_endpoint_url: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
+    s3_server_side_encryption: str | None = "AES256"
     max_document_file_size_mb: int = 15
     max_documents_per_claim: int = 20
     max_total_document_size_per_claim_mb: int = 100

@@ -78,10 +78,12 @@ class S3CompatibleObjectStorage:
         endpoint_url: str | None,
         access_key_id: str | None,
         secret_access_key: str | None,
+        server_side_encryption: str | None = "AES256",
     ) -> None:
         import boto3  # type: ignore[import-not-found]
 
         self.bucket = bucket
+        self.server_side_encryption = server_side_encryption
         self.client = boto3.client(
             "s3",
             region_name=region,
@@ -92,12 +94,10 @@ class S3CompatibleObjectStorage:
 
     def put_object(self, key: str, content: bytes) -> None:
         try:
-            self.client.put_object(
-                Bucket=self.bucket,
-                Key=key,
-                Body=content,
-                ServerSideEncryption="AES256",
-            )
+            params: dict[str, Any] = {"Bucket": self.bucket, "Key": key, "Body": content}
+            if self.server_side_encryption:
+                params["ServerSideEncryption"] = self.server_side_encryption
+            self.client.put_object(**params)
         except Exception as exc:
             raise DomainError("STORAGE_UPLOAD_FAILED", "Document storage failed", 503) from exc
 
