@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import date
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -159,11 +160,40 @@ def calculate_assessment(db: Session, assessment_id: UUID, user_id: UUID) -> Ben
                     "INVALID_CALCULATION_INPUT", "Verified date is invalid", 422
                 ) from None
 
+        def parsed_decimal(kind: FactType) -> Decimal | None:
+            value = facts.get(kind.value)
+            if not value:
+                return None
+            try:
+                clean = value.replace("%", "").strip()
+                d = Decimal(clean)
+                return d / Decimal(100) if d > 1 and kind is FactType.DISABILITY_RATE else d
+            except Exception:
+                raise DomainError(
+                    "INVALID_CALCULATION_INPUT", f"Verified fact {kind.value} is invalid", 422
+                ) from None
+
+        def parsed_int(kind: FactType) -> int | None:
+            value = facts.get(kind.value)
+            if not value:
+                return None
+            try:
+                clean = value.replace(",", "").replace("원", "").strip()
+                return int(Decimal(clean))
+            except Exception:
+                raise DomainError(
+                    "INVALID_CALCULATION_INPUT", f"Verified fact {kind.value} is invalid", 422
+                ) from None
+
         calculated = calculate(
             parsed,
             coverage.insured_amount,
-            parsed_date(FactType.HOSPITAL_ADMISSION_DATE),
-            parsed_date(FactType.HOSPITAL_DISCHARGE_DATE),
+            admission_date=parsed_date(FactType.HOSPITAL_ADMISSION_DATE),
+            discharge_date=parsed_date(FactType.HOSPITAL_DISCHARGE_DATE),
+            disability_rate=parsed_decimal(FactType.DISABILITY_RATE),
+            actual_loss=parsed_int(FactType.ACTUAL_LOSS_AMOUNT),
+            copayment_amount=parsed_int(FactType.COPAYMENT_AMOUNT),
+            non_benefit_amount=parsed_int(FactType.NON_BENEFIT_AMOUNT),
         )
         result_gross, result_final, deduction = (
             calculated.gross_amount,
