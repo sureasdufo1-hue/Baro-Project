@@ -81,6 +81,45 @@ services:
       retries: 20
       start_period: 180s
 
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull qwen2.5:7b-instruct"]
+    depends_on:
+      ollama:
+        condition: service_started
+
+  ocr:
+    build:
+      context: ./local-services/ocr
+    ports:
+      - "8100:8100"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  extraction:
+    build:
+      context: ./local-services/extraction
+    ports:
+      - "8101:8101"
+    depends_on:
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8101/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
   migrate:
     build:
       context: .
@@ -193,9 +232,12 @@ services:
         condition: service_completed_successfully
       clamav:
         condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
   policy_postgres_data:
   document_storage:
   minio_data:
+  ollama_data:
