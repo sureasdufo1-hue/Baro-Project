@@ -1,0 +1,24 @@
+{
+  "status": "FOUND",
+  "product_code_internal": "31201",
+  "product_name": "무배당 프로미라이프 New간편암건강보험2601(PA)",
+  "disclosure_sequence": "10425",
+  "disclosure_period": {
+    "from": "2026-04-01",
+    "to": "2026-06-30"
+  },
+  "official_file_code": "31084(03)",
+  "original_filename": "약관_31084(03)_20260401.pdf",
+  "source_url": "https://www.idbins.com/cYakgwanDown.do?FilePath=InsProduct/%EC%95%BD%EA%B4%80_31084%2803%29_20260401.pdf",
+  "referrer_url": "https://www.idbins.com/FWMAIV1535.do",
+  "content_type_validated": true,
+  "pdf_magic_validated": true,
+  "product_name_validated": true,
+  "document_type": "POLICY",
+  "sha256": "39cbc6761ee58a9ece32170f2759df71c76beb7e2bd1c5e73202bda817f5ac2d",
+  "file_size": 4532650,
+  "page_count": 314,
+  "text_layer": true,
+  "runtime_document_id": 5,
+  "promotion_status": "PENDING_HUMAN_REVIEW"
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "version_id": 1,
+    "document_type": "POLICY",
+    "file_name": "promica_auto_2024-02-22.pdf",
+    "local_path": "storage/policies/db_insurance/promica_auto_2024-02-22.pdf",
+    "source_url": "https://www.idbins.com/cYakgwanDown.do?FilePath=InsProduct%2F2024-02-22_%ED%94%84%EB%A1%9C%EB%AF%B8%EC%B9%B4%EA%B0%9C%EC%9D%B8%EC%9A%A9%EC%9E%90%EB%8F%99%EC%B0%A8%EB%B3%B4%ED%97%98%EC%95%BD%EA%B4%80.pdf",
+    "sha256": "cb7e818b0d8988ae3e4229748f9b04a4eb3e61cd62dc420aba11f58c9a6b1aa9",
+    "page_count": 107,
+    "text_layer": 1,
+    "source_type": "LIVE"
+  },
+  {
+    "id": 2,
+    "version_id": 2,
+    "document_type": "SUMMARY",
+    "file_name": "new_cancer_health_2601_summary.pdf",
+    "local_path": "storage/policies/db_insurance/new_cancer_health_2601_summary.pdf",
+    "source_url": "https://www.idbins.com/cYakgwanDown.do?FilePath=InsProduct%2F%EC%9A%94%EC%95%BD_31201%2800%29_20260401.pdf",
+    "sha256": "fbf8147065b5c73cebfb85d7f81692aa7cec810c14f644c63d13ca0b79521f03",
+    "page_count": 9,
+    "text_layer": 1,
+    "source_type": "LIVE"
+  },
+  {
+    "id": 3,
+    "version_id": 2,
+    "document_type": "BUSINESS_METHOD",
+    "file_name": "new_cancer_health_2601_business_method.pdf",
+    "local_path": "storage/policies/db_insurance/new_cancer_health_2601_business_method.pdf",
+    "source_url": "https://www.idbins.com/cYakgwanDown.do?FilePath=InsProduct%2F%EC%82%AC%EB%B0%A9_31201%2800%29_20260401.pdf",
+    "sha256": "54be41332d5810fbdbe5451b57d52a9754e29764f318d7411764bf3f4c61921d",
+    "page_count": 17,
+    "text_layer": 1,
+    "source_type": "LIVE"
+  },
+  {
+    "id": 4,
+    "version_id": 3,
+    "document_type": "POLICY",
+    "file_name": "archived_motorcycle_driver_1707_policy.pdf",
+    "local_path": "storage/policies/db_insurance/archived_motorcycle_driver_1707_policy.pdf",
+    "source_url": "https://www.idbins.com/cYakgwanDown.do?FilePath=InsProduct%2F30944_20170710_%EC%95%BD%EA%B4%80_%EB%AC%B4%EB%B0%B0%EB%8B%B9+%ED%94%84%EB%A1%9C%EB%AF%B8%EB%9D%BC%EC%9D%B4%ED%94%84+%EC%B0%B8%EC%A2%8B%EC%9D%80%EC%98%A4%ED%86%A0%EB%B0%94%EC%9D%B4%EC%9A%B4%EC%A0%84%EC%9E%90%EB%B3%B4%ED%97%981707.pdf",
+    "sha256": "02e47b507f0709bd2d9bf808862d01342c256c28b27b26a7c2d8edb6951081a9",
+    "page_count": 156,
+    "text_layer": 1,
+    "source_type": "LIVE"
+  }
+]

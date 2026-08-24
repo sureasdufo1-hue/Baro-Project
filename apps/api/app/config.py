@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     database_url: str = "sqlite:///./claimlens-dev.db"
+    policy_database_url: str = "sqlite:///./dbins_poc/runtime/dbins_policy.sqlite3"
     redis_url: str = "redis://localhost:6379/0"
     session_secret: str = "development-only-secret-change-before-production"
     session_cookie_name: str = "claimlens_session"

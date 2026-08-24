@@ -1,0 +1,17 @@
+CODEX-DB-06 validation result
+
+Date: 2026-08-19
+Compose config: PASS
+Admin service present: PASS
+Admin ESLint: PASS
+Admin TypeScript: PASS
+Admin production build: PASS
+Docker engine startup: BLOCKED
+PostgreSQL migration in Docker: NOT RUN
+
+Blocker:
+- WSL error HCS_E_HYPERV_NOT_INSTALLED
+- docker-desktop distribution remains Stopped
+- Host virtualization/Hyper-V activation and reboot required
+
+No Docker volumes, policy approvals, or runtime database records were removed or changed.

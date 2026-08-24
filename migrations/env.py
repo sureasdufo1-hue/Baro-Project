@@ -37,7 +37,10 @@ from domain.user.models import Consent, User  # noqa: F401
 from infrastructure.database.base import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+config.set_main_option(
+    "sqlalchemy.url",
+    config.attributes.get("database_url_override", get_settings().database_url),
+)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 target_metadata = Base.metadata

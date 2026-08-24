@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "sqlite_integrity": "ok",
+  "package_hashes": "MATCH",
+  "postgresql_runtime": "NOT_VERIFIED",
+  "postgresql_reason": "Docker Desktop Linux engine was not running",
+  "sqlite_counts": {
+    "insurance_companies": 1,
+    "insurance_products": 3,
+    "product_versions": 3,
+    "policy_documents": 4,
+    "policy_pages": 289,
+    "policy_articles": 3,
+    "coverages": 3,
+    "coverage_conditions": 9,
+    "payment_rules": 2,
+    "coverage_limits": 3,
+    "source_references": 7,
+    "validation_logs": 8
+  },
+  "postgresql_comparison": "NOT_VERIFIED"
+}

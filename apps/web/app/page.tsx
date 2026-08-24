@@ -60,7 +60,16 @@ export default function LandingPage() {
         </div>
         <div className="mascot-visual">
           <div className="mascot-glow" aria-hidden="true" />
-          <Image className="mascot-image" src="/brand/insurance-ai-mascot.png" alt="보험금 분석을 도와주는 친근한 AI 보험 도우미" width={1680} height={945} priority sizes="(max-width: 767px) 94vw, (max-width: 1199px) 54vw, 720px" />
+          <Image
+            className="mascot-image"
+            src="/brand/insurance-ai-mascot.png"
+            alt="보험금 분석을 도와주는 친근한 AI 보험 도우미"
+            width={1672}
+            height={941}
+            priority
+            unoptimized
+            sizes="(max-width: 767px) 94vw, (max-width: 1199px) 54vw, 720px"
+          />
           <div className="floating-card floating-ai"><span>AI</span><strong>진단서 분석</strong><small>의료정보를 구조화해요</small></div>
           <div className="floating-card floating-safe"><span aria-hidden="true">✓</span><strong>분석 준비 완료</strong><small>검증 후 산정을 시작해요</small></div>
         </div>

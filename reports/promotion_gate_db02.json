@@ -1,0 +1,16 @@
+{
+  "product": "31201 / New간편암건강보험2601",
+  "policy": "FOUND",
+  "policy_evidence": true,
+  "kcd_extracted": true,
+  "kcd_status": "POLICY_EXTRACTED_PENDING_REVIEW",
+  "rule_status": "OFFICIAL_CROSSCHECKED",
+  "promotion_gate": "FAIL",
+  "reasons": [
+    "RULE_NOT_VERIFIED_POLICY",
+    "KCD_OR_DISEASE_DEFINITION_NOT_VERIFIED",
+    "VALIDATION_BLOCK_PRESENT"
+  ],
+  "claim": "HUMAN_REVIEW_REQUIRED",
+  "final_amount": null
+}

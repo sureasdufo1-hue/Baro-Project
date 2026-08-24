@@ -1,0 +1,7 @@
+CODEX-DB-01 test results
+
+pytest: 86 passed, 0 failed
+ruff: PASS
+mypy: PASS
+warning: StarletteDeprecationWarning from the FastAPI TestClient dependency
+PostgreSQL runtime: NOT_VERIFIED (Docker Desktop Linux engine unavailable)

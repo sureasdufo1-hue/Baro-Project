@@ -1,0 +1,52 @@
+[
+  {
+    "file": "DATA_DICTIONARY.md",
+    "bytes": 1946,
+    "sha256": "5d18147a00e0640b5b3bd844fb14d88689382b2fb2288ddb505a9f0c8fc45d0c"
+  },
+  {
+    "file": "README.md",
+    "bytes": 1843,
+    "sha256": "a392e6c8adfe251e0f4b549d1caddcc74e910d0704303496367212228e916a39"
+  },
+  {
+    "file": "bootstrap_postgresql.sql",
+    "bytes": 1419723,
+    "sha256": "3c228299b3ae774a7a973e7ba54cc63db8c294b5ac045c94e6fdc10bdaadddee"
+  },
+  {
+    "file": "dbins_policy_seed.sqlite3",
+    "bytes": 1699840,
+    "sha256": "56dbdcac493b3d0b0d6509c2de244140f369d5be098b9572a90eb446b7c67772"
+  },
+  {
+    "file": "integrity_check.json",
+    "bytes": 814,
+    "sha256": "eb3f26ff649f280bedbfc3dc41f1a5b5b9446eeb0c217cad6ebbf9b09d56dd6c"
+  },
+  {
+    "file": "schema_postgresql.sql",
+    "bytes": 9064,
+    "sha256": "a184fb13da0dcebc8e77fcfc8cb3fb597cc342a004f22ed7a9f84f400be3de9e"
+  },
+  {
+    "file": "seed_export.json",
+    "bytes": 1432564,
+    "sha256": "8eca236cb4b846058ec4f92809d9a6434ae1a72df8a57113f160eb8fb71e4cbd"
+  },
+  {
+    "file": "seed_postgresql.sql",
+    "bytes": 1410657,
+    "sha256": "ced55824d54689c823a7dd6dafa9f57dd4ee0d1a7c206177ce4747a1f988b5a0"
+  },
+  {
+    "file": "sources_manifest.json",
+    "bytes": 2291,
+    "sha256": "3665551f508348c248cf113c18f48e4a0126dcaefa9403c2654722fd6a4b3f01"
+  },
+  {
+    "file": "validation_summary.json",
+    "bytes": 4724,
+    "sha256": "e6f3f6d99ed2d1c857c25ea25ff52a2cafe667ff9e95c0522700fb2a7a0bc848"
+  }
+]

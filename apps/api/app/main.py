@@ -18,6 +18,7 @@ from apps.api.app.routes import (
     facts,
     health,
     insurance_master,
+    policy_db,
     reviews,
 )
 from shared.errors import DomainError
@@ -32,7 +33,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "X-Request-ID"],
 )
 
@@ -70,6 +71,9 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(insurance_master.router)
+app.include_router(policy_db.health_router)
+app.include_router(policy_db.router)
+app.include_router(policy_db.admin_router)
 app.include_router(contracts.router)
 app.include_router(claims.router)
 app.include_router(documents.claim_router)

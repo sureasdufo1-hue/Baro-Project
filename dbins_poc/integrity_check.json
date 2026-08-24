@@ -1,0 +1,40 @@
+{
+  "insurance_companies": 1,
+  "insurance_products": 3,
+  "product_versions": 3,
+  "policy_documents": 4,
+  "policy_pages": 289,
+  "policy_articles": 3,
+  "coverages": 3,
+  "coverage_conditions": 9,
+  "payment_rules": 2,
+  "coverage_limits": 3,
+  "disease_codes": 2,
+  "exclusions": 1,
+  "source_references": 7,
+  "validation_logs": 8,
+  "verified_policy_coverage_ids": [
+    1
+  ],
+  "blocked_or_crosschecked_coverage_ids": [
+    2,
+    3
+  ],
+  "auto_evidence_articles": [
+    {
+      "article_no": "제21조",
+      "title": "보상하는 손해",
+      "page_number": 25
+    },
+    {
+      "article_no": "제23조",
+      "title": "보상하지 않는 손해",
+      "page_number": 25
+    },
+    {
+      "article_no": "제24조",
+      "title": "지급보험금의 계산",
+      "page_number": 26
+    }
+  ]
+}

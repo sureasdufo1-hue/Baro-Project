@@ -1,0 +1,17 @@
+CODEX-DB-03 validation result
+
+Date: 2026-08-19
+Command: .venv\Scripts\python.exe -m pytest -q
+Result: PASS (exit code 0)
+Collected tests: 91
+Failures: 0
+
+Additional validation:
+- Ruff: PASS
+- mypy (policy_seed.py, policy_db.py): PASS
+- Focused policy verification workflow tests: 4 PASS
+- Runtime verification rows: 14 PENDING (7 each for coverages 2 and 3)
+- Runtime promotion performed: NO
+
+Known warning:
+- Starlette TestClient reports an httpx deprecation warning.

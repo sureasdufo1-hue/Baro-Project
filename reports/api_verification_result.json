@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "database_health": "PASS",
+  "company_list": "PASS",
+  "product_list": "PASS",
+  "product_detail": "PASS",
+  "version_list": "PASS",
+  "version_detail": "PASS",
+  "document_list": "PASS",
+  "coverage_list": "PASS",
+  "rule_detail": "PASS",
+  "evidence": "PASS",
+  "version_resolver": "PASS",
+  "admin_summary": {
+    "companies": 1,
+    "products": 3,
+    "versions": 3,
+    "documents": 4,
+    "coverages": 3,
+    "verified_policy": 1,
+    "official_crosschecked": 2,
+    "human_review_required": 2
+  }
+}

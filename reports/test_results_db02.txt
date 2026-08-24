@@ -1,0 +1,7 @@
+CODEX-DB-02 test results
+
+Focused policy database integration tests: 7 passed, 0 failed
+Full pytest suite: 87 passed, 0 failed
+ruff: PASS
+mypy: PASS
+warning: StarletteDeprecationWarning from FastAPI TestClient dependency

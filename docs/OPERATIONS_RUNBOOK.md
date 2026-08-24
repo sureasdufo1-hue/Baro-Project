@@ -16,8 +16,15 @@ pnpm typecheck
 pnpm test
 pnpm build
 docker compose config
-alembic upgrade head
+python scripts/db_baseline.py status
+python scripts/db_baseline.py backup --backup-directory backups
+python scripts/db_baseline.py upgrade --backup-directory backups
 ```
+
+개발 SQLite DB의 `upgrade` 명령은 migration 전에 timestamp와 target revision이 포함된
+원자적 백업을 만들며, 백업 실패 시 migration을 시작하지 않는다. 완료 후 current/head,
+주요 테이블, ORM schema 및 데이터 fingerprint 보존을 검증한다. PostgreSQL 운영 백업은
+별도의 `scripts/backup_database.ps1`을 사용한다.
 
 ## Health and observability
 

@@ -8,4 +8,6 @@ docs/references
 *.db
 *.log
 .env
-
+.storage
+test-results
+.ui-*.png

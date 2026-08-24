@@ -1,12 +1,28 @@
 services:
+  policy-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dbins_policy
+      POSTGRES_USER: dbins_policy
+      POSTGRES_PASSWORD: dbins_policy_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - policy_postgres_data:/var/lib/postgresql/data
+      - ./dbins_poc/bootstrap_postgresql.sql:/docker-entrypoint-initdb.d/001-bootstrap.sql:ro
+      - ./dbins_poc/migrations/003_policy_verification_reviews.sql:/docker-entrypoint-initdb.d/003-policy-verification-reviews.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbins_policy -d dbins_policy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   postgres:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: claimlens
       POSTGRES_USER: claimlens
       POSTGRES_PASSWORD: claimlens_dev
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,8 +33,6 @@ services:
 
   redis:
     image: redis:8-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -33,6 +47,7 @@ services:
     environment: &backend_environment
       APP_ENV: development
       DATABASE_URL: postgresql+psycopg://claimlens:claimlens_dev@postgres:5432/claimlens
+      POLICY_DATABASE_URL: postgresql+psycopg://dbins_policy:dbins_policy_dev@policy-postgres:5432/dbins_policy
       REDIS_URL: redis://redis:6379/0
       SESSION_SECRET: compose-development-secret-change-before-production
       CORS_ORIGINS: http://localhost:3000,http://localhost:3001
@@ -43,6 +58,8 @@ services:
       AI_PROVIDER: DEVELOPMENT
     depends_on:
       postgres:
+        condition: service_healthy
+      policy-postgres:
         condition: service_healthy
 
   api:
@@ -65,6 +82,45 @@ services:
       timeout: 3s
       retries: 10
 
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    environment:
+      NODE_ENV: production
+    ports:
+      - "3004:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_WEB_URL: http://localhost:3004
+    environment:
+      NODE_ENV: production
+    ports:
+      - "3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3001/policy-verification"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
   worker:
     build:
       context: .
@@ -78,4 +134,5 @@ services:
 
 volumes:
   postgres_data:
+  policy_postgres_data:
   document_storage:

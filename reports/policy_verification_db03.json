@@ -1,0 +1,28 @@
+{
+  "status": "PENDING_HUMAN_REVIEW",
+  "product": "31201 / New간편암건강보험2601",
+  "coverages": [2, 3],
+  "required_checks": [
+    "PRODUCT_CODE_MAPPING",
+    "POLICY_COVERAGE",
+    "PAYMENT_RULE",
+    "EXCLUSIONS_LIMITS",
+    "DISEASE_DEFINITION",
+    "KCD_APPENDIX",
+    "SOURCE_REFERENCES"
+  ],
+  "coverage_2": {
+    "approved": 0,
+    "pending": 7,
+    "rejected": 0,
+    "eligible_for_promotion": false
+  },
+  "coverage_3": {
+    "approved": 0,
+    "pending": 7,
+    "rejected": 0,
+    "eligible_for_promotion": false
+  },
+  "rule_status": "OFFICIAL_CROSSCHECKED",
+  "claim_status": "HUMAN_REVIEW_REQUIRED"
+}
