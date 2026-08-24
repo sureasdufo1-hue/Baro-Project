@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     session_cookie_name: str = "claimlens_session"
     session_ttl_seconds: int = 28_800
     cookie_secure: bool = False
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://localhost:3001"
     log_level: str = "INFO"
     object_storage_provider: str = "LOCAL_PRIVATE"
     local_object_storage_root: Path = Path(".storage/private")
