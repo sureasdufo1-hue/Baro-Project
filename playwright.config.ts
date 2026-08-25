@@ -9,6 +9,9 @@ export default defineConfig({
   testDir: "tests/e2e",
   timeout: 30_000,
   retries: 1,
+  // The journey specs share one local OCR+LLM provider stack; running them in
+  // parallel starves the single CPU-bound Ollama and times out extraction.
+  workers: 1,
   use: {
     baseURL,
     trace: "retain-on-failure",
