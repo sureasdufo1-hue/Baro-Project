@@ -20,7 +20,8 @@ test("landing page keeps its primary hierarchy on mobile", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /복잡한 보험금 분석/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /보험금 분석 시작/ })).toBeVisible();
   await expect(page.getByAltText(/AI 보험 도우미/)).toBeVisible();
-  await expect(page.getByText("문서 업로드", { exact: true })).toBeVisible();
+  // The pipeline menu and its detail card can render the same label.
+  await expect(page.getByText("문서 업로드", { exact: true }).first()).toBeVisible();
 });
 
 test("login is keyboard operable and exposes labelled controls", async ({ page }) => {
