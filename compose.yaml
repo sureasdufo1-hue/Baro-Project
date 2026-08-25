@@ -83,6 +83,9 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    environment:
+      # Keep the model resident; cold reloads on CPU starve extraction jobs.
+      OLLAMA_KEEP_ALIVE: -1
     volumes:
       - ollama_data:/root/.ollama
 
