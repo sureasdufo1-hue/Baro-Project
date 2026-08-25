@@ -310,7 +310,12 @@ def complete_claim_if_ready(db: Session, claim_id: UUID) -> bool:
                 select(Evidence).where(Evidence.calculation_id == calculation.calculation_id)
             )
         )
-        validate_evidence_chain(calculation, evidence)
+        try:
+            validate_evidence_chain(calculation, evidence)
+        except DomainError:
+            # A sibling calculation may not have its chain built yet; the claim
+            # simply is not ready to complete. This is not a domain failure.
+            return False
     ClaimStateMachine.transition(claim, ClaimStatus.COMPLETED)
     return True
 
