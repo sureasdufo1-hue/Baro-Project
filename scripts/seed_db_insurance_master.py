@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
+import argparse
+import enum
 import sys
 import uuid
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.orm import Session
 
 from domain.policy.models import (
@@ -44,40 +48,64 @@ from infrastructure.database.session import SessionLocal
 from shared.security.passwords import hash_password
 
 
-def seed_db_insurance_master(db: Session) -> dict[str, int]:
-    """Seed comprehensive DB Insurance product, policy, coverage, and rule masters."""
-    # 1. System Admin User for audits/approvals
-    admin = db.execute(
-        select(User).where(User.email == "admin@claimlens.system")
-    ).scalar_one_or_none()
-    if not admin:
-        admin = User(
-            user_id=uuid.uuid4(),
-            email="admin@claimlens.system",
-            password_hash=hash_password("DevAdminSecret2026!"),
-            display_name="DB Insurance Master Admin",
-            role=UserRole.SYSTEM_ADMIN,
-            status=UserStatus.ACTIVE,
-        )
-        db.add(admin)
-        db.flush()
+class SeedMode(enum.StrEnum):
+    """How master rows that already exist in the database are handled."""
 
-    # 2. Insurance Company: DB손해보험
-    company = db.execute(
-        select(InsuranceCompany).where(InsuranceCompany.company_code == "DB_INSURANCE")
-    ).scalar_one_or_none()
-    if not company:
-        company = InsuranceCompany(
-            company_id=uuid.uuid4(),
-            company_code="DB_INSURANCE",
-            company_name="DB손해보험",
-            company_type="NON_LIFE",
-            status=MasterStatus.ACTIVE,
-        )
-        db.add(company)
-        db.flush()
+    SKIP = "skip"
+    UPSERT = "upsert"
 
-    counts = {
+
+def _apply_seed_values(instance: Any, values: Mapping[str, object]) -> bool:
+    """Overwrite fields that differ from the desired seed values."""
+    changed = False
+    for attribute, desired in values.items():
+        if getattr(instance, attribute) != desired:
+            setattr(instance, attribute, desired)
+            changed = True
+    return changed
+
+
+def _ensure[T](
+    db: Session,
+    model: type[T],
+    lookup: Sequence[ColumnElement[bool]],
+    values: dict[str, object],
+    counts: dict[str, int],
+    created_key: str | None,
+    mode: SeedMode,
+    **identity: object,
+) -> T:
+    """Return the row matching ``lookup``, creating it when absent.
+
+    ``values`` holds non-identity fields that ``UPSERT`` refreshes on existing
+    rows (one ``counts["updated"]`` increment per changed row). ``identity``
+    carries lookup columns plus creation-only values such as primary keys and
+    secrets. In ``SKIP`` mode existing rows are left untouched.
+    """
+    entity = db.execute(select(model).where(*lookup)).scalar_one_or_none()
+    if entity is None:
+        entity = model(**identity, **values)
+        db.add(entity)
+        db.flush()
+        if created_key:
+            counts[created_key] += 1
+        return entity
+    if mode is SeedMode.UPSERT and _apply_seed_values(entity, values):
+        counts["updated"] += 1
+    return entity
+
+
+def seed_db_insurance_master(db: Session, mode: SeedMode = SeedMode.SKIP) -> dict[str, int]:
+    """Seed comprehensive DB Insurance product, policy, coverage, and rule masters.
+
+    ``SKIP`` (default) inserts only rows that do not exist yet.
+    ``UPSERT`` additionally refreshes non-identity fields of existing rows from
+    this script's definitions, so re-running after a seed-definition change no
+    longer requires resetting the database volume. Upsert mutates master content
+    in place; use it for development/staging reseeding, never to rewrite
+    production history referenced by past calculations.
+    """
+    counts: dict[str, int] = {
         "products": 0,
         "product_versions": 0,
         "policies": 0,
@@ -88,7 +116,45 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
         "rules": 0,
         "rule_versions": 0,
         "conditions": 0,
+        "updated": 0,
     }
+
+    # 1. System Admin User for audits/approvals.
+    # password_hash stays out of UPSERT sync so reseeding never resets a
+    # locally changed development password.
+    admin = _ensure(
+        db,
+        User,
+        [User.email == "admin@claimlens.system"],
+        {
+            "display_name": "DB Insurance Master Admin",
+            "role": UserRole.SYSTEM_ADMIN,
+            "status": UserStatus.ACTIVE,
+        },
+        counts,
+        None,
+        mode,
+        user_id=uuid.uuid4(),
+        email="admin@claimlens.system",
+        password_hash=hash_password("DevAdminSecret2026!"),
+    )
+
+    # 2. Insurance Company: DB손해보험
+    company = _ensure(
+        db,
+        InsuranceCompany,
+        [InsuranceCompany.company_code == "DB_INSURANCE"],
+        {
+            "company_name": "DB손해보험",
+            "company_type": "NON_LIFE",
+            "status": MasterStatus.ACTIVE,
+        },
+        counts,
+        None,
+        mode,
+        company_id=uuid.uuid4(),
+        company_code="DB_INSURANCE",
+    )
 
     # -------------------------------------------------------------
     # 3. Standard Coverages
@@ -303,121 +369,127 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
 
     coverage_map: dict[str, Coverage] = {}
     for cdef in standard_coverages_def:
-        cov = db.execute(
-            select(Coverage).where(Coverage.standard_code == cdef["standard_code"])
-        ).scalar_one_or_none()
-        if not cov:
-            cov = Coverage(
-                coverage_id=uuid.uuid4(),
-                standard_code=cdef["standard_code"],
-                coverage_name=cdef["coverage_name"],
-                coverage_category=cdef["coverage_category"],
-                insurance_type=cdef["insurance_type"],
-                description=cdef["description"],
-                status=MasterStatus.ACTIVE,
-            )
-            db.add(cov)
-            db.flush()
-            counts["coverages"] += 1
+        cov = _ensure(
+            db,
+            Coverage,
+            [Coverage.standard_code == cdef["standard_code"]],
+            {
+                "coverage_name": cdef["coverage_name"],
+                "coverage_category": cdef["coverage_category"],
+                "insurance_type": cdef["insurance_type"],
+                "description": cdef["description"],
+                "status": MasterStatus.ACTIVE,
+            },
+            counts,
+            "coverages",
+            mode,
+            coverage_id=uuid.uuid4(),
+            standard_code=cdef["standard_code"],
+        )
         coverage_map[str(cdef["standard_code"])] = cov
 
         for alias in cdef["aliases"]:
-            existing_alias = db.execute(
-                select(CoverageAlias).where(
+            _ensure(
+                db,
+                CoverageAlias,
+                [
                     CoverageAlias.coverage_id == cov.coverage_id,
                     CoverageAlias.company_id == company.company_id,
                     CoverageAlias.normalized_name == alias,
-                )
-            ).scalar_one_or_none()
-            if not existing_alias:
-                alias_obj = CoverageAlias(
-                    alias_id=uuid.uuid4(),
-                    coverage_id=cov.coverage_id,
-                    company_id=company.company_id,
-                    alias_name=alias,
-                    normalized_name=alias,
-                )
-                db.add(alias_obj)
-                counts["aliases"] += 1
+                ],
+                {"alias_name": alias, "normalized_name": alias},
+                counts,
+                "aliases",
+                mode,
+                alias_id=uuid.uuid4(),
+                coverage_id=cov.coverage_id,
+                company_id=company.company_id,
+            )
     db.flush()
 
     # -------------------------------------------------------------
     # 4. Product 1: (무)프로미라이프 New간편암건강보험2601
     # -------------------------------------------------------------
-    p1 = db.execute(
-        select(InsuranceProduct).where(
+    p1 = _ensure(
+        db,
+        InsuranceProduct,
+        [
             InsuranceProduct.company_id == company.company_id,
             InsuranceProduct.product_code == "31201",
-        )
-    ).scalar_one_or_none()
-    if not p1:
-        p1 = InsuranceProduct(
-            product_id=uuid.uuid4(),
-            company_id=company.company_id,
-            product_code="31201",
-            product_name="무배당 프로미라이프 New간편암건강보험2601",
-            insurance_type=InsuranceType.THIRD_PARTY,
-            status=MasterStatus.ACTIVE,
-        )
-        db.add(p1)
-        db.flush()
-        counts["products"] += 1
+        ],
+        {
+            "product_name": "무배당 프로미라이프 New간편암건강보험2601",
+            "insurance_type": InsuranceType.THIRD_PARTY,
+            "status": MasterStatus.ACTIVE,
+        },
+        counts,
+        "products",
+        mode,
+        product_id=uuid.uuid4(),
+        company_id=company.company_id,
+        product_code="31201",
+    )
 
-    pv1 = db.execute(
-        select(ProductVersion).where(
+    pv1 = _ensure(
+        db,
+        ProductVersion,
+        [
             ProductVersion.product_id == p1.product_id,
             ProductVersion.version_name == "2601",
-        )
-    ).scalar_one_or_none()
-    if not pv1:
-        pv1 = ProductVersion(
-            product_version_id=uuid.uuid4(),
-            product_id=p1.product_id,
-            version_name="2601",
-            sale_start_date=date(2026, 4, 1),
-            effective_from=date(2026, 4, 1),
-            status=VersionStatus.ACTIVE,
-        )
-        db.add(pv1)
-        db.flush()
-        counts["product_versions"] += 1
+        ],
+        {
+            "sale_start_date": date(2026, 4, 1),
+            "effective_from": date(2026, 4, 1),
+            "status": VersionStatus.ACTIVE,
+        },
+        counts,
+        "product_versions",
+        mode,
+        product_version_id=uuid.uuid4(),
+        product_id=p1.product_id,
+        version_name="2601",
+    )
 
-    pol1 = db.execute(
-        select(Policy).where(Policy.product_version_id == pv1.product_version_id)
-    ).scalar_one_or_none()
-    if not pol1:
-        pol1 = Policy(
-            policy_id=uuid.uuid4(),
-            product_version_id=pv1.product_version_id,
-            policy_name="무배당 프로미라이프 New간편암건강보험2601 보통약관 및 특별약관",
-            policy_type=PolicyType.GENERAL,
-            status=MasterStatus.ACTIVE,
-        )
-        db.add(pol1)
-        db.flush()
-        counts["policies"] += 1
+    pol1 = _ensure(
+        db,
+        Policy,
+        [Policy.product_version_id == pv1.product_version_id],
+        {
+            "policy_name": "무배당 프로미라이프 New간편암건강보험2601 보통약관 및 특별약관",
+            "policy_type": PolicyType.GENERAL,
+            "status": MasterStatus.ACTIVE,
+        },
+        counts,
+        "policies",
+        mode,
+        policy_id=uuid.uuid4(),
+        product_version_id=pv1.product_version_id,
+    )
 
-    polv1 = db.execute(
-        select(PolicyVersion).where(
+    polv1 = _ensure(
+        db,
+        PolicyVersion,
+        [
             PolicyVersion.policy_id == pol1.policy_id,
             PolicyVersion.version_code == "31084(03)",
-        )
-    ).scalar_one_or_none()
-    if not polv1:
-        polv1 = PolicyVersion(
-            policy_version_id=uuid.uuid4(),
-            policy_id=pol1.policy_id,
-            version_code="31084(03)",
-            effective_from=date(2026, 4, 1),
-            file_hash="39cbc6761ee58a9ece32170f2759df71c76beb7e2bd1c5e73202bda817f5ac2d",
-            source_file_uri="storage/policies/db_insurance/31201/2601/policy_31084_03_20260401.pdf",
-            original_filename="policy_31084_03_20260401.pdf",
-            status=PolicyVersionStatus.ACTIVE,
-            approved_by=admin.user_id,
-        )
-        db.add(polv1)
-        db.flush()
-        counts["policy_versions"] += 1
+        ],
+        {
+            "effective_from": date(2026, 4, 1),
+            "file_hash": ("39cbc6761ee58a9ece32170f2759df71c76beb7e2bd1c5e73202bda817f5ac2d"),
+            "source_file_uri": (
+                "storage/policies/db_insurance/31201/2601/policy_31084_03_20260401.pdf"
+            ),
+            "original_filename": "policy_31084_03_20260401.pdf",
+            "status": PolicyVersionStatus.ACTIVE,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "policy_versions",
+        mode,
+        policy_version_id=uuid.uuid4(),
+        policy_id=pol1.policy_id,
+        version_code="31084(03)",
+    )
 
     cancer_clauses_data = [
         {
@@ -464,24 +536,25 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
 
     clause_map_p1: dict[str, PolicyClause] = {}
     for cdata in cancer_clauses_data:
-        cl = db.execute(
-            select(PolicyClause).where(
+        cl = _ensure(
+            db,
+            PolicyClause,
+            [
                 PolicyClause.policy_version_id == polv1.policy_version_id,
                 PolicyClause.article_number == cdata["article_number"],
-            )
-        ).scalar_one_or_none()
-        if not cl:
-            cl = PolicyClause(
-                clause_id=uuid.uuid4(),
-                policy_version_id=polv1.policy_version_id,
-                article_number=cdata["article_number"],
-                article_title=cdata["article_title"],
-                clause_text=cdata["clause_text"],
-                page_number=cdata["page_number"],
-            )
-            db.add(cl)
-            db.flush()
-            counts["clauses"] += 1
+            ],
+            {
+                "article_title": cdata["article_title"],
+                "clause_text": cdata["clause_text"],
+                "page_number": cdata["page_number"],
+            },
+            counts,
+            "clauses",
+            mode,
+            clause_id=uuid.uuid4(),
+            policy_version_id=polv1.policy_version_id,
+            article_number=cdata["article_number"],
+        )
         clause_map_p1[str(cdata["article_number"])] = cl
 
     cancer_kcd_list = [
@@ -543,31 +616,36 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
     ]
 
     # Rule 1: 암진단비 적격성 (ELIGIBILITY)
-    r_cancer_elig = db.execute(
-        select(BenefitRule).where(
+    r_cancer_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_CANCER_DIAG"].coverage_id,
             BenefitRule.policy_version_id == polv1.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_cancer_elig:
-        r_cancer_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_CANCER_DIAG"].coverage_id,
-            policy_version_id=polv1.policy_version_id,
-            rule_name="일반암 진단비 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_cancer_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "일반암 진단비 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_CANCER_DIAG"].coverage_id,
+        policy_version_id=polv1.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_cancer_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_cancer_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    rv_cancer_elig = _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_cancer_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -579,68 +657,91 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2026, 4, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_cancer_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2026, 4, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_cancer_elig.rule_id,
+        version_no=1,
+    )
 
-        c1 = RuleCondition(
-            condition_id=uuid.uuid4(),
-            rule_version_id=rv_cancer_elig.rule_version_id,
-            sequence_no=1,
-            fact_path="facts.DIAGNOSIS_CODE",
-            operator=RuleOperator.IN,
-            comparison_value=cancer_kcd_list,
-            logical_operator=LogicalOperator.AND,
-        )
-        db.add(c1)
-        counts["conditions"] += 1
+    _ensure(
+        db,
+        RuleCondition,
+        [
+            RuleCondition.rule_version_id == rv_cancer_elig.rule_version_id,
+            RuleCondition.sequence_no == 1,
+        ],
+        {
+            "fact_path": "facts.DIAGNOSIS_CODE",
+            "operator": RuleOperator.IN,
+            "comparison_value": cancer_kcd_list,
+            "logical_operator": LogicalOperator.AND,
+        },
+        counts,
+        "conditions",
+        mode,
+        condition_id=uuid.uuid4(),
+        rule_version_id=rv_cancer_elig.rule_version_id,
+        sequence_no=1,
+    )
 
-        brc1 = BenefitRuleClause(
+    for clause_art, relation in (("제3조", "SOURCE"), ("별표2", "APPENDIX")):
+        _ensure(
+            db,
+            BenefitRuleClause,
+            [
+                BenefitRuleClause.rule_id == r_cancer_elig.rule_id,
+                BenefitRuleClause.clause_id == clause_map_p1[clause_art].clause_id,
+                BenefitRuleClause.relation_type == relation,
+            ],
+            {},
+            counts,
+            None,
+            mode,
             link_id=uuid.uuid4(),
             rule_id=r_cancer_elig.rule_id,
-            clause_id=clause_map_p1["제3조"].clause_id,
-            relation_type="SOURCE",
+            clause_id=clause_map_p1[clause_art].clause_id,
+            relation_type=relation,
         )
-        brc2 = BenefitRuleClause(
-            link_id=uuid.uuid4(),
-            rule_id=r_cancer_elig.rule_id,
-            clause_id=clause_map_p1["별표2"].clause_id,
-            relation_type="APPENDIX",
-        )
-        db.add_all([brc1, brc2])
 
     # Rule 2: 암진단비 면책/제외 (EXCLUSION)
-    r_cancer_excl = db.execute(
-        select(BenefitRule).where(
+    r_cancer_excl = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_CANCER_DIAG"].coverage_id,
             BenefitRule.policy_version_id == polv1.policy_version_id,
             BenefitRule.rule_type == RuleType.EXCLUSION,
-        )
-    ).scalar_one_or_none()
-    if not r_cancer_excl:
-        r_cancer_excl = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_CANCER_DIAG"].coverage_id,
-            policy_version_id=polv1.policy_version_id,
-            rule_name="일반암 진단비 제외질병(유사암) 면책규칙",
-            rule_type=RuleType.EXCLUSION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_cancer_excl)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "일반암 진단비 제외질병(유사암) 면책규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_CANCER_DIAG"].coverage_id,
+        policy_version_id=polv1.policy_version_id,
+        rule_type=RuleType.EXCLUSION,
+    )
 
-        rv_cancer_excl = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_cancer_excl.rule_id,
-            version_no=1,
-            rule_definition={
+    rv_cancer_excl = _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_cancer_excl.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "EXCLUSION",
                 "logicalOperator": "AND",
@@ -652,62 +753,90 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2026, 4, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_cancer_excl)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2026, 4, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_cancer_excl.rule_id,
+        version_no=1,
+    )
 
-        c_excl = RuleCondition(
-            condition_id=uuid.uuid4(),
-            rule_version_id=rv_cancer_excl.rule_version_id,
-            sequence_no=1,
-            fact_path="facts.DIAGNOSIS_CODE",
-            operator=RuleOperator.IN,
-            comparison_value=excluded_kcd_list,
-            logical_operator=LogicalOperator.AND,
-        )
-        db.add(c_excl)
-        counts["conditions"] += 1
+    _ensure(
+        db,
+        RuleCondition,
+        [
+            RuleCondition.rule_version_id == rv_cancer_excl.rule_version_id,
+            RuleCondition.sequence_no == 1,
+        ],
+        {
+            "fact_path": "facts.DIAGNOSIS_CODE",
+            "operator": RuleOperator.IN,
+            "comparison_value": excluded_kcd_list,
+            "logical_operator": LogicalOperator.AND,
+        },
+        counts,
+        "conditions",
+        mode,
+        condition_id=uuid.uuid4(),
+        rule_version_id=rv_cancer_excl.rule_version_id,
+        sequence_no=1,
+    )
 
-        brc_excl = BenefitRuleClause(
-            link_id=uuid.uuid4(),
-            rule_id=r_cancer_excl.rule_id,
-            clause_id=clause_map_p1["제4조"].clause_id,
-            relation_type="SOURCE",
-        )
-        db.add(brc_excl)
+    _ensure(
+        db,
+        BenefitRuleClause,
+        [
+            BenefitRuleClause.rule_id == r_cancer_excl.rule_id,
+            BenefitRuleClause.clause_id == clause_map_p1["제4조"].clause_id,
+            BenefitRuleClause.relation_type == "SOURCE",
+        ],
+        {},
+        counts,
+        None,
+        mode,
+        link_id=uuid.uuid4(),
+        rule_id=r_cancer_excl.rule_id,
+        clause_id=clause_map_p1["제4조"].clause_id,
+        relation_type="SOURCE",
+    )
 
     # Rule 3: 암진단비 계산 산식 (CALCULATION)
-    r_cancer_calc = db.execute(
-        select(BenefitRule).where(
+    r_cancer_calc = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_CANCER_DIAG"].coverage_id,
             BenefitRule.policy_version_id == polv1.policy_version_id,
             BenefitRule.rule_type == RuleType.CALCULATION,
-        )
-    ).scalar_one_or_none()
-    if not r_cancer_calc:
-        r_cancer_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_CANCER_DIAG"].coverage_id,
-            policy_version_id=polv1.policy_version_id,
-            rule_name="일반암 진단비 100% 정액지급 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_cancer_calc)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "일반암 진단비 100% 정액지급 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_CANCER_DIAG"].coverage_id,
+        policy_version_id=polv1.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_cancer_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_cancer_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_cancer_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "FIXED_BENEFIT",
@@ -718,42 +847,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2026, 4, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_cancer_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2026, 4, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_cancer_calc.rule_id,
+        version_no=1,
+    )
 
     # Rule 4: 유사암 진단비
-    r_sim_elig = db.execute(
-        select(BenefitRule).where(
+    r_sim_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_SIMILAR_CANCER_DIAG"].coverage_id,
             BenefitRule.policy_version_id == polv1.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_sim_elig:
-        r_sim_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_SIMILAR_CANCER_DIAG"].coverage_id,
-            policy_version_id=polv1.policy_version_id,
-            rule_name="유사암 진단비 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_sim_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "유사암 진단비 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_SIMILAR_CANCER_DIAG"].coverage_id,
+        policy_version_id=polv1.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_sim_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_sim_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_sim_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -765,33 +903,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2026, 4, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_sim_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2026, 4, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_sim_elig.rule_id,
+        version_no=1,
+    )
 
-        r_sim_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_SIMILAR_CANCER_DIAG"].coverage_id,
-            policy_version_id=polv1.policy_version_id,
-            rule_name="유사암 진단비 20% 정액지급 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_sim_calc)
-        db.flush()
-        counts["rules"] += 1
+    r_sim_calc = _ensure(
+        db,
+        BenefitRule,
+        [
+            BenefitRule.coverage_id == coverage_map["STD_SIMILAR_CANCER_DIAG"].coverage_id,
+            BenefitRule.policy_version_id == polv1.policy_version_id,
+            BenefitRule.rule_type == RuleType.CALCULATION,
+        ],
+        {
+            "rule_name": "유사암 진단비 20% 정액지급 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_SIMILAR_CANCER_DIAG"].coverage_id,
+        policy_version_id=polv1.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_sim_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_sim_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_sim_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "FIXED_BENEFIT",
@@ -802,93 +957,101 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2026, 4, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_sim_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2026, 4, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_sim_calc.rule_id,
+        version_no=1,
+    )
 
     # -------------------------------------------------------------
     # 5. Product 2: 프로미카 개인용자동차보험
     # -------------------------------------------------------------
-    p2 = db.execute(
-        select(InsuranceProduct).where(
+    p2 = _ensure(
+        db,
+        InsuranceProduct,
+        [
             InsuranceProduct.company_id == company.company_id,
             InsuranceProduct.product_code == "PROMY-AUTO",
-        )
-    ).scalar_one_or_none()
-    if not p2:
-        p2 = InsuranceProduct(
-            product_id=uuid.uuid4(),
-            company_id=company.company_id,
-            product_code="PROMY-AUTO",
-            product_name="프로미카 개인용자동차보험",
-            insurance_type=InsuranceType.AUTO,
-            status=MasterStatus.ACTIVE,
-        )
-        db.add(p2)
-        db.flush()
-        counts["products"] += 1
+        ],
+        {
+            "product_name": "프로미카 개인용자동차보험",
+            "insurance_type": InsuranceType.AUTO,
+            "status": MasterStatus.ACTIVE,
+        },
+        counts,
+        "products",
+        mode,
+        product_id=uuid.uuid4(),
+        company_id=company.company_id,
+        product_code="PROMY-AUTO",
+    )
 
-    pv2 = db.execute(
-        select(ProductVersion).where(
+    pv2 = _ensure(
+        db,
+        ProductVersion,
+        [
             ProductVersion.product_id == p2.product_id,
             ProductVersion.version_name == "2024-02-22",
-        )
-    ).scalar_one_or_none()
-    if not pv2:
-        pv2 = ProductVersion(
-            product_version_id=uuid.uuid4(),
-            product_id=p2.product_id,
-            version_name="2024-02-22",
-            sale_start_date=date(2024, 2, 22),
-            effective_from=date(2024, 2, 22),
-            status=VersionStatus.ACTIVE,
-        )
-        db.add(pv2)
-        db.flush()
-        counts["product_versions"] += 1
+        ],
+        {
+            "sale_start_date": date(2024, 2, 22),
+            "effective_from": date(2024, 2, 22),
+            "status": VersionStatus.ACTIVE,
+        },
+        counts,
+        "product_versions",
+        mode,
+        product_version_id=uuid.uuid4(),
+        product_id=p2.product_id,
+        version_name="2024-02-22",
+    )
 
-    pol2 = db.execute(
-        select(Policy).where(Policy.product_version_id == pv2.product_version_id)
-    ).scalar_one_or_none()
-    if not pol2:
-        pol2 = Policy(
-            policy_id=uuid.uuid4(),
-            product_version_id=pv2.product_version_id,
-            policy_name="프로미카 개인용자동차보험 보통약관",
-            policy_type=PolicyType.GENERAL,
-            status=MasterStatus.ACTIVE,
-        )
-        db.add(pol2)
-        db.flush()
-        counts["policies"] += 1
+    pol2 = _ensure(
+        db,
+        Policy,
+        [Policy.product_version_id == pv2.product_version_id],
+        {
+            "policy_name": "프로미카 개인용자동차보험 보통약관",
+            "policy_type": PolicyType.GENERAL,
+            "status": MasterStatus.ACTIVE,
+        },
+        counts,
+        "policies",
+        mode,
+        policy_id=uuid.uuid4(),
+        product_version_id=pv2.product_version_id,
+    )
 
-    polv2 = db.execute(
-        select(PolicyVersion).where(
+    polv2 = _ensure(
+        db,
+        PolicyVersion,
+        [
             PolicyVersion.policy_id == pol2.policy_id,
             PolicyVersion.version_code == "PROMY-20240222",
-        )
-    ).scalar_one_or_none()
-    if not polv2:
-        polv2 = PolicyVersion(
-            policy_version_id=uuid.uuid4(),
-            policy_id=pol2.policy_id,
-            version_code="PROMY-20240222",
-            effective_from=date(2024, 2, 22),
-            file_hash="cb7e818b0d8988ae3e4229748f9b04a4eb3e61cd62dc420aba11f58c9a6b1aa9",
-            source_file_uri="storage/policies/db_insurance/promica_auto_2024-02-22.pdf",
-            original_filename="promica_auto_2024-02-22.pdf",
-            status=PolicyVersionStatus.ACTIVE,
-            approved_by=admin.user_id,
-        )
-        db.add(polv2)
-        db.flush()
-        counts["policy_versions"] += 1
+        ],
+        {
+            "effective_from": date(2024, 2, 22),
+            "file_hash": ("cb7e818b0d8988ae3e4229748f9b04a4eb3e61cd62dc420aba11f58c9a6b1aa9"),
+            "source_file_uri": "storage/policies/db_insurance/promica_auto_2024-02-22.pdf",
+            "original_filename": "promica_auto_2024-02-22.pdf",
+            "status": PolicyVersionStatus.ACTIVE,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "policy_versions",
+        mode,
+        policy_version_id=uuid.uuid4(),
+        policy_id=pol2.policy_id,
+        version_code="PROMY-20240222",
+    )
 
     auto_clauses_data = [
         {
@@ -917,98 +1080,104 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
     ]
 
     for cdata in auto_clauses_data:
-        cl = db.execute(
-            select(PolicyClause).where(
+        _ensure(
+            db,
+            PolicyClause,
+            [
                 PolicyClause.policy_version_id == polv2.policy_version_id,
                 PolicyClause.article_number == cdata["article_number"],
-            )
-        ).scalar_one_or_none()
-        if not cl:
-            cl = PolicyClause(
-                clause_id=uuid.uuid4(),
-                policy_version_id=polv2.policy_version_id,
-                article_number=cdata["article_number"],
-                article_title=cdata["article_title"],
-                clause_text=cdata["clause_text"],
-                page_number=cdata["page_number"],
-            )
-            db.add(cl)
-            counts["clauses"] += 1
+            ],
+            {
+                "article_title": cdata["article_title"],
+                "clause_text": cdata["clause_text"],
+                "page_number": cdata["page_number"],
+            },
+            counts,
+            "clauses",
+            mode,
+            clause_id=uuid.uuid4(),
+            policy_version_id=polv2.policy_version_id,
+            article_number=cdata["article_number"],
+        )
 
     # -------------------------------------------------------------
     # 6. Product 3: (무)프로미라이프 참좋은훼밀리종합보험 (뇌/심장/수술/골절/입원/배상책임)
     # -------------------------------------------------------------
-    p3 = db.execute(
-        select(InsuranceProduct).where(
+    p3 = _ensure(
+        db,
+        InsuranceProduct,
+        [
             InsuranceProduct.company_id == company.company_id,
             InsuranceProduct.product_code == "31100",
-        )
-    ).scalar_one_or_none()
-    if not p3:
-        p3 = InsuranceProduct(
-            product_id=uuid.uuid4(),
-            company_id=company.company_id,
-            product_code="31100",
-            product_name="무배당 프로미라이프 참좋은훼밀리종합보험",
-            insurance_type=InsuranceType.THIRD_PARTY,
-            status=MasterStatus.ACTIVE,
-        )
-        db.add(p3)
-        db.flush()
-        counts["products"] += 1
+        ],
+        {
+            "product_name": "무배당 프로미라이프 참좋은훼밀리종합보험",
+            "insurance_type": InsuranceType.THIRD_PARTY,
+            "status": MasterStatus.ACTIVE,
+        },
+        counts,
+        "products",
+        mode,
+        product_id=uuid.uuid4(),
+        company_id=company.company_id,
+        product_code="31100",
+    )
 
-    pv3 = db.execute(
-        select(ProductVersion).where(
+    pv3 = _ensure(
+        db,
+        ProductVersion,
+        [
             ProductVersion.product_id == p3.product_id,
             ProductVersion.version_name == "2401",
-        )
-    ).scalar_one_or_none()
-    if not pv3:
-        pv3 = ProductVersion(
-            product_version_id=uuid.uuid4(),
-            product_id=p3.product_id,
-            version_name="2401",
-            sale_start_date=date(2024, 1, 1),
-            effective_from=date(2024, 1, 1),
-            status=VersionStatus.ACTIVE,
-        )
-        db.add(pv3)
-        db.flush()
-        counts["product_versions"] += 1
+        ],
+        {
+            "sale_start_date": date(2024, 1, 1),
+            "effective_from": date(2024, 1, 1),
+            "status": VersionStatus.ACTIVE,
+        },
+        counts,
+        "product_versions",
+        mode,
+        product_version_id=uuid.uuid4(),
+        product_id=p3.product_id,
+        version_name="2401",
+    )
 
-    pol3 = db.execute(
-        select(Policy).where(Policy.product_version_id == pv3.product_version_id)
-    ).scalar_one_or_none()
-    if not pol3:
-        pol3 = Policy(
-            policy_id=uuid.uuid4(),
-            product_version_id=pv3.product_version_id,
-            policy_name="무배당 프로미라이프 참좋은훼밀리종합보험 보통약관 및 특별약관",
-            policy_type=PolicyType.GENERAL,
-            status=MasterStatus.ACTIVE,
-        )
-        db.add(pol3)
-        db.flush()
-        counts["policies"] += 1
+    pol3 = _ensure(
+        db,
+        Policy,
+        [Policy.product_version_id == pv3.product_version_id],
+        {
+            "policy_name": "무배당 프로미라이프 참좋은훼밀리종합보험 보통약관 및 특별약관",
+            "policy_type": PolicyType.GENERAL,
+            "status": MasterStatus.ACTIVE,
+        },
+        counts,
+        "policies",
+        mode,
+        policy_id=uuid.uuid4(),
+        product_version_id=pv3.product_version_id,
+    )
 
-    polv3 = db.execute(
-        select(PolicyVersion).where(
+    polv3 = _ensure(
+        db,
+        PolicyVersion,
+        [
             PolicyVersion.policy_id == pol3.policy_id,
             PolicyVersion.version_code == "31100-2401",
-        )
-    ).scalar_one_or_none()
-    if not polv3:
-        polv3 = PolicyVersion(
-            policy_version_id=uuid.uuid4(),
-            policy_id=pol3.policy_id,
-            version_code="31100-2401",
-            effective_from=date(2024, 1, 1),
-            status=PolicyVersionStatus.ACTIVE,
-            approved_by=admin.user_id,
-        )
-        db.add(polv3)
-        db.flush()
-        counts["policy_versions"] += 1
+        ],
+        {
+            "effective_from": date(2024, 1, 1),
+            "status": PolicyVersionStatus.ACTIVE,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "policy_versions",
+        mode,
+        policy_version_id=uuid.uuid4(),
+        policy_id=pol3.policy_id,
+        version_code="31100-2401",
+    )
 
     # Clauses for Product 3
     p3_clauses_def = [
@@ -1133,24 +1302,25 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
 
     clause_map_p3: dict[str, PolicyClause] = {}
     for cdata in p3_clauses_def:
-        cl = db.execute(
-            select(PolicyClause).where(
+        cl = _ensure(
+            db,
+            PolicyClause,
+            [
                 PolicyClause.policy_version_id == polv3.policy_version_id,
                 PolicyClause.article_number == cdata["article_number"],
-            )
-        ).scalar_one_or_none()
-        if not cl:
-            cl = PolicyClause(
-                clause_id=uuid.uuid4(),
-                policy_version_id=polv3.policy_version_id,
-                article_number=cdata["article_number"],
-                article_title=cdata["article_title"],
-                clause_text=cdata["clause_text"],
-                page_number=cdata["page_number"],
-            )
-            db.add(cl)
-            db.flush()
-            counts["clauses"] += 1
+            ],
+            {
+                "article_title": cdata["article_title"],
+                "clause_text": cdata["clause_text"],
+                "page_number": cdata["page_number"],
+            },
+            counts,
+            "clauses",
+            mode,
+            clause_id=uuid.uuid4(),
+            policy_version_id=polv3.policy_version_id,
+            article_number=cdata["article_number"],
+        )
         clause_map_p3[str(cdata["article_number"])] = cl
 
     # Rider Rules Definition Helper
@@ -1162,31 +1332,36 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
         clause_art: str | None = None,
     ) -> None:
         cov = coverage_map[cov_key]
-        r_elig = db.execute(
-            select(BenefitRule).where(
+        r_elig = _ensure(
+            db,
+            BenefitRule,
+            [
                 BenefitRule.coverage_id == cov.coverage_id,
                 BenefitRule.policy_version_id == polv3.policy_version_id,
                 BenefitRule.rule_type == RuleType.ELIGIBILITY,
-            )
-        ).scalar_one_or_none()
-        if not r_elig:
-            r_elig = BenefitRule(
-                rule_id=uuid.uuid4(),
-                coverage_id=cov.coverage_id,
-                policy_version_id=polv3.policy_version_id,
-                rule_name=f"{rule_name_prefix} 지급요건 평가규칙",
-                rule_type=RuleType.ELIGIBILITY,
-                status=RuleStatus.ACTIVE,
-            )
-            db.add(r_elig)
-            db.flush()
-            counts["rules"] += 1
+            ],
+            {
+                "rule_name": f"{rule_name_prefix} 지급요건 평가규칙",
+                "status": RuleStatus.ACTIVE,
+            },
+            counts,
+            "rules",
+            mode,
+            rule_id=uuid.uuid4(),
+            coverage_id=cov.coverage_id,
+            policy_version_id=polv3.policy_version_id,
+            rule_type=RuleType.ELIGIBILITY,
+        )
 
-            rv_elig = RuleVersion(
-                rule_version_id=uuid.uuid4(),
-                rule_id=r_elig.rule_id,
-                version_no=1,
-                rule_definition={
+        rv_elig = _ensure(
+            db,
+            RuleVersion,
+            [
+                RuleVersion.rule_id == r_elig.rule_id,
+                RuleVersion.version_no == 1,
+            ],
+            {
+                "rule_definition": {
                     "schemaVersion": "1.0",
                     "ruleType": "ELIGIBILITY",
                     "logicalOperator": "AND",
@@ -1198,62 +1373,90 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                         }
                     ],
                 },
-                effective_from=date(2024, 1, 1),
-                status=RuleStatus.ACTIVE,
-                source_type=RuleSourceType.MANUAL,
-                created_by=admin.user_id,
-                approved_by=admin.user_id,
+                "effective_from": date(2024, 1, 1),
+                "status": RuleStatus.ACTIVE,
+                "source_type": RuleSourceType.MANUAL,
+                "created_by": admin.user_id,
+                "approved_by": admin.user_id,
+            },
+            counts,
+            "rule_versions",
+            mode,
+            rule_version_id=uuid.uuid4(),
+            rule_id=r_elig.rule_id,
+            version_no=1,
+        )
+
+        _ensure(
+            db,
+            RuleCondition,
+            [
+                RuleCondition.rule_version_id == rv_elig.rule_version_id,
+                RuleCondition.sequence_no == 1,
+            ],
+            {
+                "fact_path": "facts.DIAGNOSIS_CODE",
+                "operator": RuleOperator.IN,
+                "comparison_value": kcd_list,
+                "logical_operator": LogicalOperator.AND,
+            },
+            counts,
+            "conditions",
+            mode,
+            condition_id=uuid.uuid4(),
+            rule_version_id=rv_elig.rule_version_id,
+            sequence_no=1,
+        )
+
+        if clause_art and clause_art in clause_map_p3:
+            _ensure(
+                db,
+                BenefitRuleClause,
+                [
+                    BenefitRuleClause.rule_id == r_elig.rule_id,
+                    BenefitRuleClause.clause_id == clause_map_p3[clause_art].clause_id,
+                    BenefitRuleClause.relation_type == "SOURCE",
+                ],
+                {},
+                counts,
+                None,
+                mode,
+                link_id=uuid.uuid4(),
+                rule_id=r_elig.rule_id,
+                clause_id=clause_map_p3[clause_art].clause_id,
+                relation_type="SOURCE",
             )
-            db.add(rv_elig)
-            db.flush()
-            counts["rule_versions"] += 1
 
-            cond = RuleCondition(
-                condition_id=uuid.uuid4(),
-                rule_version_id=rv_elig.rule_version_id,
-                sequence_no=1,
-                fact_path="facts.DIAGNOSIS_CODE",
-                operator=RuleOperator.IN,
-                comparison_value=kcd_list,
-                logical_operator=LogicalOperator.AND,
-            )
-            db.add(cond)
-            counts["conditions"] += 1
-
-            if clause_art and clause_art in clause_map_p3:
-                brc = BenefitRuleClause(
-                    link_id=uuid.uuid4(),
-                    rule_id=r_elig.rule_id,
-                    clause_id=clause_map_p3[clause_art].clause_id,
-                    relation_type="SOURCE",
-                )
-                db.add(brc)
-
-        r_calc = db.execute(
-            select(BenefitRule).where(
+        r_calc = _ensure(
+            db,
+            BenefitRule,
+            [
                 BenefitRule.coverage_id == cov.coverage_id,
                 BenefitRule.policy_version_id == polv3.policy_version_id,
                 BenefitRule.rule_type == RuleType.CALCULATION,
-            )
-        ).scalar_one_or_none()
-        if not r_calc:
-            r_calc = BenefitRule(
-                rule_id=uuid.uuid4(),
-                coverage_id=cov.coverage_id,
-                policy_version_id=polv3.policy_version_id,
-                rule_name=f"{rule_name_prefix} {payment_rate} 정액지급 산정규칙",
-                rule_type=RuleType.CALCULATION,
-                status=RuleStatus.ACTIVE,
-            )
-            db.add(r_calc)
-            db.flush()
-            counts["rules"] += 1
+            ],
+            {
+                "rule_name": f"{rule_name_prefix} {payment_rate} 정액지급 산정규칙",
+                "status": RuleStatus.ACTIVE,
+            },
+            counts,
+            "rules",
+            mode,
+            rule_id=uuid.uuid4(),
+            coverage_id=cov.coverage_id,
+            policy_version_id=polv3.policy_version_id,
+            rule_type=RuleType.CALCULATION,
+        )
 
-            rv_calc = RuleVersion(
-                rule_version_id=uuid.uuid4(),
-                rule_id=r_calc.rule_id,
-                version_no=1,
-                rule_definition={
+        _ensure(
+            db,
+            RuleVersion,
+            [
+                RuleVersion.rule_id == r_calc.rule_id,
+                RuleVersion.version_no == 1,
+            ],
+            {
+                "rule_definition": {
                     "schemaVersion": 1,
                     "ruleType": "CALCULATION",
                     "strategy": "FIXED_BENEFIT",
@@ -1264,15 +1467,19 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                         "roundingUnit": 1,
                     },
                 },
-                effective_from=date(2024, 1, 1),
-                status=RuleStatus.ACTIVE,
-                source_type=RuleSourceType.MANUAL,
-                created_by=admin.user_id,
-                approved_by=admin.user_id,
-            )
-            db.add(rv_calc)
-            db.flush()
-            counts["rule_versions"] += 1
+                "effective_from": date(2024, 1, 1),
+                "status": RuleStatus.ACTIVE,
+                "source_type": RuleSourceType.MANUAL,
+                "created_by": admin.user_id,
+                "approved_by": admin.user_id,
+            },
+            counts,
+            "rule_versions",
+            mode,
+            rule_version_id=uuid.uuid4(),
+            rule_id=r_calc.rule_id,
+            version_no=1,
+        )
 
     # 1) 뇌출혈진단비
     create_rider_rules(
@@ -1338,31 +1545,36 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
     )
 
     # 8) 질병수술비
-    r_surg_elig = db.execute(
-        select(BenefitRule).where(
+    r_surg_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_DISEASE_SURGERY"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_surg_elig:
-        r_surg_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_DISEASE_SURGERY"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="질병수술비 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_surg_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "질병수술비 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_DISEASE_SURGERY"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_surg_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_surg_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_surg_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -1374,41 +1586,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_surg_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_surg_elig.rule_id,
+        version_no=1,
+    )
 
-    r_surg_calc = db.execute(
-        select(BenefitRule).where(
+    r_surg_calc = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_DISEASE_SURGERY"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.CALCULATION,
-        )
-    ).scalar_one_or_none()
-    if not r_surg_calc:
-        r_surg_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_DISEASE_SURGERY"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="질병수술비 100% 정액지급 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_surg_calc)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "질병수술비 100% 정액지급 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_DISEASE_SURGERY"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_surg_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_surg_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_surg_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "FIXED_BENEFIT",
@@ -1419,42 +1640,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_surg_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_surg_calc.rule_id,
+        version_no=1,
+    )
 
     # 상해수술비
-    r_inj_surg_elig = db.execute(
-        select(BenefitRule).where(
+    r_inj_surg_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_INJURY_SURGERY"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_inj_surg_elig:
-        r_inj_surg_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INJURY_SURGERY"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="상해수술비 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_inj_surg_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "상해수술비 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INJURY_SURGERY"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_inj_surg_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_inj_surg_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_inj_surg_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -1466,41 +1696,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_inj_surg_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_inj_surg_elig.rule_id,
+        version_no=1,
+    )
 
-    r_inj_surg_calc = db.execute(
-        select(BenefitRule).where(
+    r_inj_surg_calc = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_INJURY_SURGERY"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.CALCULATION,
-        )
-    ).scalar_one_or_none()
-    if not r_inj_surg_calc:
-        r_inj_surg_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INJURY_SURGERY"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="상해수술비 100% 정액지급 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_inj_surg_calc)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "상해수술비 100% 정액지급 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INJURY_SURGERY"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_inj_surg_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_inj_surg_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_inj_surg_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "FIXED_BENEFIT",
@@ -1511,42 +1750,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_inj_surg_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_inj_surg_calc.rule_id,
+        version_no=1,
+    )
 
     # 9) 골절진단비
-    r_frac_elig = db.execute(
-        select(BenefitRule).where(
+    r_frac_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_FRACTURE_DIAG"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_frac_elig:
-        r_frac_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_FRACTURE_DIAG"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="골절진단비 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_frac_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "골절진단비 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_FRACTURE_DIAG"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_frac_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_frac_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_frac_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -1558,40 +1806,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_frac_elig)
-        db.flush()
-        counts["rule_versions"] += 1
-    r_frac_calc = db.execute(
-        select(BenefitRule).where(
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_frac_elig.rule_id,
+        version_no=1,
+    )
+
+    r_frac_calc = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_FRACTURE_DIAG"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.CALCULATION,
-        )
-    ).scalar_one_or_none()
-    if not r_frac_calc:
-        r_frac_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_FRACTURE_DIAG"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="골절진단비 100% 정액지급 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_frac_calc)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "골절진단비 100% 정액지급 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_FRACTURE_DIAG"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_frac_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_frac_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_frac_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "FIXED_BENEFIT",
@@ -1602,42 +1860,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_frac_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_frac_calc.rule_id,
+        version_no=1,
+    )
 
     # 10) 질병입원일당
-    r_hosp_calc = db.execute(
-        select(BenefitRule).where(
+    r_hosp_calc = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_DISEASE_HOSPITAL_DAY"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.CALCULATION,
-        )
-    ).scalar_one_or_none()
-    if not r_hosp_calc:
-        r_hosp_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_DISEASE_HOSPITAL_DAY"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="질병입원일당 일수비례 산정규칙 (최대 180일)",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_hosp_calc)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "질병입원일당 일수비례 산정규칙 (최대 180일)",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_DISEASE_HOSPITAL_DAY"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_hosp_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_hosp_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_hosp_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "HOSPITAL_DAILY",
@@ -1650,42 +1917,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_hosp_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_hosp_calc.rule_id,
+        version_no=1,
+    )
 
     # 11) 가족일상생활배상책임 (STD_PERSONAL_LIABILITY)
-    r_liab_elig = db.execute(
-        select(BenefitRule).where(
+    r_liab_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_PERSONAL_LIABILITY"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_liab_elig:
-        r_liab_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_PERSONAL_LIABILITY"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="가족일상생활배상책임 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_liab_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "가족일상생활배상책임 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_PERSONAL_LIABILITY"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_liab_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_liab_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    rv_liab_elig = _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_liab_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -1697,53 +1973,89 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_liab_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_liab_elig.rule_id,
+        version_no=1,
+    )
 
-        cond_liab = RuleCondition(
-            condition_id=uuid.uuid4(),
-            rule_version_id=rv_liab_elig.rule_version_id,
-            sequence_no=1,
-            fact_path="facts.accident.liability_type",
-            operator=RuleOperator.IN,
-            comparison_value=["BODILY_INJURY", "PROPERTY_DAMAGE", "WATER_LEAK"],
-            logical_operator=LogicalOperator.AND,
-        )
-        db.add(cond_liab)
-        counts["conditions"] += 1
+    _ensure(
+        db,
+        RuleCondition,
+        [
+            RuleCondition.rule_version_id == rv_liab_elig.rule_version_id,
+            RuleCondition.sequence_no == 1,
+        ],
+        {
+            "fact_path": "facts.accident.liability_type",
+            "operator": RuleOperator.IN,
+            "comparison_value": ["BODILY_INJURY", "PROPERTY_DAMAGE", "WATER_LEAK"],
+            "logical_operator": LogicalOperator.AND,
+        },
+        counts,
+        "conditions",
+        mode,
+        condition_id=uuid.uuid4(),
+        rule_version_id=rv_liab_elig.rule_version_id,
+        sequence_no=1,
+    )
 
-        brc_liab = BenefitRuleClause(
-            link_id=uuid.uuid4(),
-            rule_id=r_liab_elig.rule_id,
-            clause_id=clause_map_p3["특약_제50조"].clause_id,
-            relation_type="SOURCE",
-        )
-        db.add(brc_liab)
+    _ensure(
+        db,
+        BenefitRuleClause,
+        [
+            BenefitRuleClause.rule_id == r_liab_elig.rule_id,
+            BenefitRuleClause.clause_id == clause_map_p3["특약_제50조"].clause_id,
+            BenefitRuleClause.relation_type == "SOURCE",
+        ],
+        {},
+        counts,
+        None,
+        mode,
+        link_id=uuid.uuid4(),
+        rule_id=r_liab_elig.rule_id,
+        clause_id=clause_map_p3["특약_제50조"].clause_id,
+        relation_type="SOURCE",
+    )
 
-        r_liab_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_PERSONAL_LIABILITY"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="가족일상생활배상책임 실손(자기부담금 공제) 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_liab_calc)
-        db.flush()
-        counts["rules"] += 1
+    r_liab_calc = _ensure(
+        db,
+        BenefitRule,
+        [
+            BenefitRule.coverage_id == coverage_map["STD_PERSONAL_LIABILITY"].coverage_id,
+            BenefitRule.policy_version_id == polv3.policy_version_id,
+            BenefitRule.rule_type == RuleType.CALCULATION,
+        ],
+        {
+            "rule_name": "가족일상생활배상책임 실손(자기부담금 공제) 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_PERSONAL_LIABILITY"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_liab_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_liab_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_liab_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "FIXED_BENEFIT",
@@ -1754,43 +2066,52 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_liab_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_liab_calc.rule_id,
+        version_no=1,
+    )
 
     # 12) 교통사고처리지원금 (STD_DRIVER_TRAFFIC_ACCIDENT_SUPPORT)
-    r_ts_calc = db.execute(
-        select(BenefitRule).where(
+    r_ts_calc = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id
             == coverage_map["STD_DRIVER_TRAFFIC_ACCIDENT_SUPPORT"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.CALCULATION,
-        )
-    ).scalar_one_or_none()
-    if not r_ts_calc:
-        r_ts_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_DRIVER_TRAFFIC_ACCIDENT_SUPPORT"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="교통사고처리지원금 실손합의금 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_ts_calc)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "교통사고처리지원금 실손합의금 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_DRIVER_TRAFFIC_ACCIDENT_SUPPORT"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_ts_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_ts_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_ts_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "FIXED_BENEFIT",
@@ -1801,41 +2122,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_ts_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_ts_calc.rule_id,
+        version_no=1,
+    )
+
     # 13) 상해후유장해 (STD_INJURY_DISABILITY_3_TO_100)
-    r_inj_dis_elig = db.execute(
-        select(BenefitRule).where(
+    r_inj_dis_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_INJURY_DISABILITY_3_TO_100"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_inj_dis_elig:
-        r_inj_dis_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INJURY_DISABILITY_3_TO_100"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="상해후유장해(3~100%) 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_inj_dis_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "상해후유장해(3~100%) 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INJURY_DISABILITY_3_TO_100"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_inj_dis_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_inj_dis_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_inj_dis_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -1847,33 +2178,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_inj_dis_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_inj_dis_elig.rule_id,
+        version_no=1,
+    )
 
-        r_inj_dis_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INJURY_DISABILITY_3_TO_100"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="상해후유장해 3~100% 비례지급 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_inj_dis_calc)
-        db.flush()
-        counts["rules"] += 1
+    r_inj_dis_calc = _ensure(
+        db,
+        BenefitRule,
+        [
+            BenefitRule.coverage_id == coverage_map["STD_INJURY_DISABILITY_3_TO_100"].coverage_id,
+            BenefitRule.policy_version_id == polv3.policy_version_id,
+            BenefitRule.rule_type == RuleType.CALCULATION,
+        ],
+        {
+            "rule_name": "상해후유장해 3~100% 비례지급 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INJURY_DISABILITY_3_TO_100"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_inj_dis_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_inj_dis_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_inj_dis_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "PROPORTIONAL_DISABILITY",
@@ -1885,42 +2233,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_inj_dis_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_inj_dis_calc.rule_id,
+        version_no=1,
+    )
 
     # 14) 질병후유장해 (STD_DISEASE_DISABILITY_3_TO_100)
-    r_dis_dis_elig = db.execute(
-        select(BenefitRule).where(
+    r_dis_dis_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_DISEASE_DISABILITY_3_TO_100"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_dis_dis_elig:
-        r_dis_dis_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_DISEASE_DISABILITY_3_TO_100"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="질병후유장해(3~100%) 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_dis_dis_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "질병후유장해(3~100%) 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_DISEASE_DISABILITY_3_TO_100"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_dis_dis_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_dis_dis_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_dis_dis_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -1932,33 +2289,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_dis_dis_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_dis_dis_elig.rule_id,
+        version_no=1,
+    )
 
-        r_dis_dis_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_DISEASE_DISABILITY_3_TO_100"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="질병후유장해 3~100% 비례지급 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_dis_dis_calc)
-        db.flush()
-        counts["rules"] += 1
+    r_dis_dis_calc = _ensure(
+        db,
+        BenefitRule,
+        [
+            BenefitRule.coverage_id == coverage_map["STD_DISEASE_DISABILITY_3_TO_100"].coverage_id,
+            BenefitRule.policy_version_id == polv3.policy_version_id,
+            BenefitRule.rule_type == RuleType.CALCULATION,
+        ],
+        {
+            "rule_name": "질병후유장해 3~100% 비례지급 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_DISEASE_DISABILITY_3_TO_100"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_dis_dis_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_dis_dis_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_dis_dis_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "PROPORTIONAL_DISABILITY",
@@ -1970,42 +2344,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_dis_dis_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_dis_dis_calc.rule_id,
+        version_no=1,
+    )
 
     # 15) 실손의료비 급여 (STD_INDEMNITY_BENEFIT)
-    r_med_ben_elig = db.execute(
-        select(BenefitRule).where(
+    r_med_ben_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_INDEMNITY_BENEFIT"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_med_ben_elig:
-        r_med_ben_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INDEMNITY_BENEFIT"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="급여 실손의료비 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_med_ben_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "급여 실손의료비 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INDEMNITY_BENEFIT"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_med_ben_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_med_ben_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_med_ben_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -2017,33 +2400,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_med_ben_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_med_ben_elig.rule_id,
+        version_no=1,
+    )
 
-        r_med_ben_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INDEMNITY_BENEFIT"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="급여 실손의료비 (20% 공제) 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_med_ben_calc)
-        db.flush()
-        counts["rules"] += 1
+    r_med_ben_calc = _ensure(
+        db,
+        BenefitRule,
+        [
+            BenefitRule.coverage_id == coverage_map["STD_INDEMNITY_BENEFIT"].coverage_id,
+            BenefitRule.policy_version_id == polv3.policy_version_id,
+            BenefitRule.rule_type == RuleType.CALCULATION,
+        ],
+        {
+            "rule_name": "급여 실손의료비 (20% 공제) 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INDEMNITY_BENEFIT"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_med_ben_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_med_ben_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_med_ben_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "MEDICAL_EXPENSE",
@@ -2056,42 +2456,51 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_med_ben_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_med_ben_calc.rule_id,
+        version_no=1,
+    )
 
     # 16) 실손의료비 비급여 (STD_INDEMNITY_NON_BENEFIT)
-    r_med_non_elig = db.execute(
-        select(BenefitRule).where(
+    r_med_non_elig = _ensure(
+        db,
+        BenefitRule,
+        [
             BenefitRule.coverage_id == coverage_map["STD_INDEMNITY_NON_BENEFIT"].coverage_id,
             BenefitRule.policy_version_id == polv3.policy_version_id,
             BenefitRule.rule_type == RuleType.ELIGIBILITY,
-        )
-    ).scalar_one_or_none()
-    if not r_med_non_elig:
-        r_med_non_elig = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INDEMNITY_NON_BENEFIT"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="비급여 실손의료비 지급요건 평가규칙",
-            rule_type=RuleType.ELIGIBILITY,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_med_non_elig)
-        db.flush()
-        counts["rules"] += 1
+        ],
+        {
+            "rule_name": "비급여 실손의료비 지급요건 평가규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INDEMNITY_NON_BENEFIT"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.ELIGIBILITY,
+    )
 
-        rv_med_non_elig = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_med_non_elig.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_med_non_elig.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": "1.0",
                 "ruleType": "ELIGIBILITY",
                 "logicalOperator": "AND",
@@ -2103,33 +2512,50 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     }
                 ],
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_med_non_elig)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_med_non_elig.rule_id,
+        version_no=1,
+    )
 
-        r_med_non_calc = BenefitRule(
-            rule_id=uuid.uuid4(),
-            coverage_id=coverage_map["STD_INDEMNITY_NON_BENEFIT"].coverage_id,
-            policy_version_id=polv3.policy_version_id,
-            rule_name="비급여 실손의료비 (30% 공제) 산정규칙",
-            rule_type=RuleType.CALCULATION,
-            status=RuleStatus.ACTIVE,
-        )
-        db.add(r_med_non_calc)
-        db.flush()
-        counts["rules"] += 1
+    r_med_non_calc = _ensure(
+        db,
+        BenefitRule,
+        [
+            BenefitRule.coverage_id == coverage_map["STD_INDEMNITY_NON_BENEFIT"].coverage_id,
+            BenefitRule.policy_version_id == polv3.policy_version_id,
+            BenefitRule.rule_type == RuleType.CALCULATION,
+        ],
+        {
+            "rule_name": "비급여 실손의료비 (30% 공제) 산정규칙",
+            "status": RuleStatus.ACTIVE,
+        },
+        counts,
+        "rules",
+        mode,
+        rule_id=uuid.uuid4(),
+        coverage_id=coverage_map["STD_INDEMNITY_NON_BENEFIT"].coverage_id,
+        policy_version_id=polv3.policy_version_id,
+        rule_type=RuleType.CALCULATION,
+    )
 
-        rv_med_non_calc = RuleVersion(
-            rule_version_id=uuid.uuid4(),
-            rule_id=r_med_non_calc.rule_id,
-            version_no=1,
-            rule_definition={
+    _ensure(
+        db,
+        RuleVersion,
+        [
+            RuleVersion.rule_id == r_med_non_calc.rule_id,
+            RuleVersion.version_no == 1,
+        ],
+        {
+            "rule_definition": {
                 "schemaVersion": 1,
                 "ruleType": "CALCULATION",
                 "strategy": "MEDICAL_EXPENSE",
@@ -2142,23 +2568,35 @@ def seed_db_insurance_master(db: Session) -> dict[str, int]:
                     "roundingUnit": 1,
                 },
             },
-            effective_from=date(2024, 1, 1),
-            status=RuleStatus.ACTIVE,
-            source_type=RuleSourceType.MANUAL,
-            created_by=admin.user_id,
-            approved_by=admin.user_id,
-        )
-        db.add(rv_med_non_calc)
-        db.flush()
-        counts["rule_versions"] += 1
+            "effective_from": date(2024, 1, 1),
+            "status": RuleStatus.ACTIVE,
+            "source_type": RuleSourceType.MANUAL,
+            "created_by": admin.user_id,
+            "approved_by": admin.user_id,
+        },
+        counts,
+        "rule_versions",
+        mode,
+        rule_version_id=uuid.uuid4(),
+        rule_id=r_med_non_calc.rule_id,
+        version_no=1,
+    )
 
     db.commit()
     return counts
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Seed DB insurance master data")
+    parser.add_argument(
+        "--upsert",
+        action="store_true",
+        help="refresh non-identity fields of existing master rows instead of skipping them",
+    )
+    args = parser.parse_args()
+    seed_mode = SeedMode.UPSERT if args.upsert else SeedMode.SKIP
     with SessionLocal() as session:
-        result = seed_db_insurance_master(session)
-        print("DB Insurance Master Seed Completed:")
+        result = seed_db_insurance_master(session, seed_mode)
+        print(f"DB Insurance Master Seed Completed (mode={seed_mode.value}):")
         for k, v in result.items():
             print(f"  - {k}: {v}")

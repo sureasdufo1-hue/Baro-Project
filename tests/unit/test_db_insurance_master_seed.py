@@ -16,6 +16,7 @@ from domain.calculation.engine import (
 )
 from domain.policy.models import (
     Coverage,
+    CoverageAlias,
     InsuranceCompany,
     InsuranceProduct,
     Policy,
@@ -24,11 +25,13 @@ from domain.policy.models import (
     ProductVersion,
 )
 from domain.rule.models import (
+    BenefitRule,
     LogicalOperator,
     RuleOperator,
     RuleType,
+    RuleVersion,
 )
-from scripts.seed_db_insurance_master import seed_db_insurance_master
+from scripts.seed_db_insurance_master import SeedMode, seed_db_insurance_master
 
 
 def test_db_insurance_master_seeding_structure(db_session: Session) -> None:
@@ -260,3 +263,73 @@ def test_db_insurance_master_seeding_structure(db_session: Session) -> None:
     )
     driver_res = calculate(driver_calc_rule, insured_amount=30000000)
     assert driver_res.final_amount == 30000000
+
+
+def _cancer_clause(db_session: Session) -> PolicyClause:
+    return db_session.execute(
+        select(PolicyClause).where(PolicyClause.article_number == "제3조")
+    ).scalar_one()
+
+
+def test_skip_mode_preserves_manually_changed_rows(db_session: Session) -> None:
+    seed_db_insurance_master(db_session)
+
+    clause = _cancer_clause(db_session)
+    clause.clause_text = "수동으로 변경된 조문"
+
+    counts = seed_db_insurance_master(db_session)
+
+    assert all(value == 0 for value in counts.values())
+    assert clause.clause_text == "수동으로 변경된 조문"
+
+
+def test_upsert_mode_refreshes_changed_rows(db_session: Session) -> None:
+    first = seed_db_insurance_master(db_session)
+    assert first["updated"] == 0
+    assert first["rules"] > 0
+
+    clause = _cancer_clause(db_session)
+    original_clause_text = clause.clause_text
+    clause.clause_text = "변경된 조문"
+
+    coverage = db_session.execute(
+        select(Coverage).where(Coverage.standard_code == "STD_CANCER_DIAG")
+    ).scalar_one()
+    original_description = coverage.description
+    coverage.description = "변경된 담보 설명"
+
+    rule_version = db_session.execute(
+        select(RuleVersion)
+        .join(BenefitRule, BenefitRule.rule_id == RuleVersion.rule_id)
+        .where(BenefitRule.rule_name == "유사암 진단비 20% 정액지급 산정규칙")
+    ).scalar_one()
+    rule_version.rule_definition["parameters"]["paymentRate"] = "0.9"
+
+    second = seed_db_insurance_master(db_session, SeedMode.UPSERT)
+
+    assert second["products"] == 0
+    assert second["coverages"] == 0
+    assert second["rules"] == 0
+    assert second["rule_versions"] == 0
+    assert second["updated"] == 3
+
+    assert clause.clause_text == original_clause_text
+    assert coverage.description == original_description
+    assert rule_version.rule_definition["parameters"]["paymentRate"] == "0.2"
+
+    third = seed_db_insurance_master(db_session, SeedMode.UPSERT)
+    assert third["updated"] == 0
+
+
+def test_upsert_mode_does_not_duplicate_rows_or_reset_admin_password(
+    db_session: Session,
+) -> None:
+    seed_db_insurance_master(db_session)
+
+    clause_count_before = len(list(db_session.scalars(select(PolicyClause))))
+    alias_count_before = len(list(db_session.scalars(select(CoverageAlias))))
+
+    seed_db_insurance_master(db_session, SeedMode.UPSERT)
+
+    assert len(list(db_session.scalars(select(PolicyClause)))) == clause_count_before
+    assert len(list(db_session.scalars(select(CoverageAlias)))) == alias_count_before
