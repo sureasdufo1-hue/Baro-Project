@@ -8,7 +8,12 @@ This project implements an AI-assisted insurance benefit assessment system. It a
 
 The MVP focuses on fixed-benefit third-sector insurance: cancer and specified-disease diagnosis benefits, acute myocardial infarction diagnosis benefits, disease and injury surgery benefits, fracture and burn diagnosis benefits, and disease and injury hospitalization daily benefits.
 
-Indemnity medical insurance, automobile insurance, liability insurance, workers compensation, complex disability assessment, medical-causation automation, insurer-system integration, and automated claim submission are later-phase features unless explicitly assigned.
+The MVP also includes two deterministic extensions already implemented in the calculation engine (2026-08 user decision):
+
+- Proportional disability benefits (`PROPORTIONAL_DISABILITY`): insured amount multiplied by a verified disability-rate fact or a versioned rule rate, within rule-configured min/max bounds.
+- Medical-cost-based benefits (`INDEMNITY`, `MEDICAL_EXPENSE`): deterministic application of versioned indemnity/copayment rates, non-benefit handling, and minimum deductions to verified actual-loss, copayment, non-benefit, and treatment-cost amounts.
+
+Disability degrees and loss amounts enter only as verified document-derived facts; the system never performs professional disability grading or medical causation judgment itself. Complex disability assessment, full indemnity medical insurance products beyond these deterministic strategies, automobile insurance, liability insurance, workers compensation, medical-causation automation, insurer-system integration, and automated claim submission remain later-phase features unless explicitly assigned.
 
 ## 2. Source of Truth
 

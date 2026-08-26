@@ -53,6 +53,8 @@
 
 ## 5. 미해결 사항
 
-- 이관된 장해/실손 확장은 AGENTS.md §1에서 later-phase로 규정한 영역과 겹친다.
-  범위 확정(AGENTS.md 개정 여부)은 사용자 판단 필요 — 에이전트는 임의로 개정하지 않는다.
+- ~~이관된 장해/실손 확장은 AGENTS.md §1에서 later-phase로 규정한 영역과 겹친다.~~
+  **해결(2026-08-26)**: 사용자 결정에 따라 AGENTS.md §1에 두 확장(`PROPORTIONAL_DISABILITY`,
+  `INDEMNITY`/`MEDICAL_EXPENSE`)을 MVP 범위로 명시했다. 전문가 장해등급 판정·완전 실손 상품
+  대응 등은 later-phase로 유지된다.
 - `dbins_poc/bootstrap_postgresql.sql` 수정 시 본 문서 로그에 기록한다.
