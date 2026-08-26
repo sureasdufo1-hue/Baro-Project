@@ -25,18 +25,12 @@ function dockerExec(args: string): string {
   });
 }
 
-let adjusterId = "";
-
 test.beforeAll(() => {
   dockerExec(
     `-e BOOTSTRAP_ADMIN_EMAIL=${adminEmail} -e BOOTSTRAP_ADMIN_PASSWORD=${staffPassword} ` +
       `-e BOOTSTRAP_ADJUSTER_EMAIL=${adjusterEmail} -e BOOTSTRAP_ADJUSTER_PASSWORD=${staffPassword} ` +
       `api python scripts/bootstrap_admin.py`,
   );
-  adjusterId = dockerExec(
-    `postgres psql -U claimlens -d claimlens -t -A -c "SELECT user_id FROM users WHERE email='${adjusterEmail}'"`,
-  ).trim();
-  expect(adjusterId).toMatch(/^[0-9a-f-]{36}$/);
 });
 
 // Claim subpages live at /claims/{id}/...; derive the claim base from any
@@ -87,7 +81,7 @@ async function confirmAllFacts(page: Page): Promise<void> {
   ).toBe(0);
 }
 
-test("expert reviews a manual-review claim through the admin UI", async ({ browser, page, request }) => {
+test("expert reviews a manual-review claim through the admin UI", async ({ browser, page }) => {
   const email = `reviewer-journey-${stamp}@example.com`;
   const password = "E2eReviewerUser2026!";
   const policyNumber = `E2E-REVIEWER-${stamp}`;
@@ -161,25 +155,33 @@ test("expert reviews a manual-review claim through the admin UI", async ({ brows
   await page.goto(claimBase(page));
   await expect(page.getByText("MANUAL_REVIEW")).toBeVisible();
 
-  // ---- Part 2: SYSTEM_ADMIN creates and assigns the review via API ----
-  const login = await request.post("http://localhost:8000/api/auth/login", {
-    data: { email: adminEmail, password: staffPassword },
-  });
-  expect(login.ok()).toBeTruthy();
-  const created = await request.post("http://localhost:8000/api/reviews", {
-    data: {
-      claim_id: claimId,
-      review_type: "GENERAL_CLAIM_REVIEW",
-      reason: "E2E: 룰이 없는 담보에 대한 전문가 검토",
-    },
-  });
-  expect(created.status()).toBe(201);
-  const review = (await created.json()) as { review_id: string };
-  const assigned = await request.post(
-    `http://localhost:8000/api/reviews/${review.review_id}/assign`,
-    { data: { reviewer_user_id: adjusterId } },
-  );
-  expect(assigned.ok()).toBeTruthy();
+  // ---- Part 2: SYSTEM_ADMIN creates and assigns the review in the admin UI ----
+  const adminContext = await browser.newContext();
+  const adminPage = await adminContext.newPage();
+  await adminPage.goto("/login");
+  await adminPage.getByLabel("이메일").fill(adminEmail);
+  await adminPage.getByLabel("비밀번호").fill(staffPassword);
+  await adminPage.getByRole("button", { name: "로그인" }).click();
+  await adminPage.waitForURL("**/dashboard");
+
+  await adminPage.goto("http://localhost:3001/review-admin");
+  await expect(adminPage.getByRole("heading", { name: "검토 관리" })).toBeVisible({ timeout: 30_000 });
+  await adminPage.getByLabel("Case ID").fill(claimId);
+  await adminPage.getByLabel("검토 유형").selectOption("GENERAL_CLAIM_REVIEW");
+  await adminPage.getByLabel("사유").fill("E2E: 룰이 없는 담보에 대한 전문가 검토");
+  await adminPage.getByRole("button", { name: "검토 생성" }).click();
+  await expect(adminPage.getByText("검토가 생성되었습니다.")).toBeVisible({ timeout: 30_000 });
+
+  const requestCard = adminPage
+    .locator("article.card", { hasText: claimId })
+    .filter({ hasText: "REQUESTED" })
+    .first();
+  await requestCard
+    .getByRole("combobox")
+    .selectOption({ label: `Development ADJUSTER (${adjusterEmail})` });
+  await requestCard.getByRole("button", { name: "배정" }).click();
+  await expect(adminPage.getByText("검토가 배정되었습니다.")).toBeVisible({ timeout: 30_000 });
+  await adminContext.close();
 
   // ---- Part 3: adjuster accepts and requests additional documents ----
   const adjusterContext = await browser.newContext();
@@ -191,10 +193,10 @@ test("expert reviews a manual-review claim through the admin UI", async ({ brows
   await adjusterPage.waitForURL("**/dashboard");
 
   await adjusterPage.goto("http://localhost:3001/reviews");
-  await expect(adjusterPage.getByRole("heading", { name: "전문가 Review Dashboard" })).toBeVisible();
+  await expect(adjusterPage.getByRole("heading", { name: "전문가 Review Dashboard" })).toBeVisible({ timeout: 30_000 });
   await expect(adjusterPage.getByText("ASSIGNED").first()).toBeVisible();
   await adjusterPage.getByRole("link", { name: "검토 열기" }).first().click();
-  await expect(adjusterPage.getByRole("heading", { name: "Claim Review" })).toBeVisible();
+  await expect(adjusterPage.getByRole("heading", { name: "Claim Review" })).toBeVisible({ timeout: 30_000 });
 
   await adjusterPage.getByRole("button", { name: "검토 시작" }).click();
   await expect(adjusterPage.getByText("처리되었습니다.")).toBeVisible();

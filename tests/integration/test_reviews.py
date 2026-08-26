@@ -211,3 +211,17 @@ def test_additional_document_submission_resumes_existing_review(
     assert resumed.json()["request_status"] == "RESOLVED"
     db_session.refresh(claim)
     assert claim.status is ClaimStatus.MANUAL_REVIEW
+
+
+def test_adjuster_listing_requires_system_admin(client: TestClient, db_session: Session) -> None:
+    login_as(client, db_session, credentials("adjuster-roster@example.com"), UserRole.ADJUSTER)
+    forbidden = client.get("/api/admin/adjusters")
+    assert forbidden.status_code == 403
+
+    client.post("/api/auth/logout")
+    login_as(client, db_session, credentials("review-admin-2@example.com"), UserRole.SYSTEM_ADMIN)
+    listed = client.get("/api/admin/adjusters")
+    assert listed.status_code == 200
+    roster = {item["email"]: item for item in listed.json()}
+    assert "adjuster-roster@example.com" in roster
+    assert UUID(roster["adjuster-roster@example.com"]["user_id"])

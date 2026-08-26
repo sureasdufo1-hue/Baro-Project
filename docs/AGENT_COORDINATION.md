@@ -36,6 +36,7 @@
 | 실제 업로드 API 경유 E2E (인증 부트스트랩 포함) | 완료 | `355251e` |
 | 브라우저 전체 여정 E2E (사용자 골든 패스) + 근거사슬 교착 수정 | 완료 | `355251e`, `dd646ad` |
 | 전문가 검토 브라우저 여정 E2E (Workflow A/B, admin UI) | 완료 | — |
+| 검토 생성·배정 Admin UI(`/review-admin`) + `GET /api/admin/adjusters` | 완료 | — |
 | [이관] FactType 6종 확장(장해/실손/의료비) + 계산 엔진 확장 | 완료 (검증 후 커밋) | `d601e48` |
 | [이관] DB 마스터 시딩 스크립트 + 청구 E2E 테스트 | 완료 (검증 후 커밋) | `d601e48` |
 | Web 브랜딩/마스코트 이미지 정리 | 완료 (검증 후 커밋) | `57e3245` |
@@ -48,6 +49,7 @@
 | 2026-08-24 | compose 환경변수 | `${VAR:-기본값}` 보간 전환, `S3_SERVER_SIDE_ENCRYPTION` 추가 | `.env.example` 문서화 |
 | 2026-08-25 | `scripts/bootstrap_admin.py` | 역할별 스태프 부트스트랩(`BOOTSTRAP_ADMIN_*` SYSTEM_ADMIN, `BOOTSTRAP_ADJUSTER_*` ADJUSTER), 멱등 전환 | reviewer-journey E2E가 컨테이너 내 실행 |
 | 2026-08-25 | compose `ollama` | `OLLAMA_KEEP_ALIVE=-1` 상시 모델 로드 | CPU 콜드 리로드로 인한 추출 타임아웃 제거 |
+| 2026-08-26 | API 스키마 | `GET /api/admin/adjusters` 추가(SYSTEM_ADMIN 전용, ADJUSTER 목록) | `/review-admin` 화면의 검토 배정 콤보박스 |
 
 ## 5. 미해결 사항
 
