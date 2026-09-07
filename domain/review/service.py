@@ -316,6 +316,97 @@ def resume_after_documents(
     return review
 
 
+def finalize_after_additional_documents(
+    db: Session,
+    review: Review,
+    reviewer_id: UUID,
+    final_eligibility: EligibilityResult,
+    opinion: str | None,
+    assessment_id: UUID | None = None,
+) -> tuple[CoverageAssessment, Any | None]:
+    """Complete the review after additional documents are submitted and verified.
+
+    Creates new Assessment V2+, Calculation V2+, Evidence V2+ and completes the review.
+    """
+    if review.review_status is not ReviewStatus.IN_PROGRESS:
+        raise DomainError("INVALID_REVIEW_STATE", "Review is not in progress", 409)
+
+    target_assessment_id = assessment_id or review.assessment_id
+    if target_assessment_id is None:
+        latest = db.scalar(
+            select(CoverageAssessment)
+            .where(CoverageAssessment.claim_id == review.claim_id)
+            .order_by(CoverageAssessment.created_at.desc())
+        )
+        if latest is not None:
+            target_assessment_id = latest.assessment_id
+
+    if target_assessment_id is None:
+        raise DomainError("ASSESSMENT_NOT_FOUND", "Review has no base assessment", 404)
+
+    source = db.get(CoverageAssessment, target_assessment_id)
+    if source is None:
+        raise DomainError("ASSESSMENT_NOT_FOUND", "Base assessment was not found", 404)
+    if source.claim_id != review.claim_id:
+        raise DomainError(
+            "ASSESSMENT_CLAIM_MISMATCH", "Base assessment does not belong to this claim", 409
+        )
+
+    review.assessment_id = source.assessment_id
+
+    # Create new assessment version (V2+)
+    assessment = CoverageAssessment(
+        claim_id=source.claim_id,
+        contract_coverage_id=source.contract_coverage_id,
+        policy_version_id=source.policy_version_id,
+        rule_version_id=source.rule_version_id,
+        calculation_rule_version_id=source.calculation_rule_version_id,
+        assessment_status=AssessmentStatus.COMPLETED,
+        match_score=source.match_score,
+        eligibility_result=final_eligibility,
+        exclusion_result=source.exclusion_result,
+        reduction_result=source.reduction_result,
+        reason_summary="Expert finalization after additional document review",
+        resolution_snapshot={
+            **source.resolution_snapshot,
+            "expert_review_id": str(review.review_id),
+            "additional_documents_round": len(
+                list(
+                    db.scalars(
+                        select(AdditionalDocumentRequest).where(
+                            AdditionalDocumentRequest.review_id == review.review_id
+                        )
+                    )
+                )
+            ),
+        },
+    )
+    db.add(assessment)
+    db.flush()
+
+    calculation = None
+    evidence_version = None
+    if final_eligibility in {EligibilityResult.PAYABLE, EligibilityResult.NOT_PAYABLE}:
+        claim = db.get(Claim, review.claim_id)
+        if claim is None:
+            raise DomainError("CLAIM_NOT_FOUND", "Claim was not found", 404)
+        calculation = calculate_assessment(db, assessment.assessment_id, claim.user_id)
+        evidence = build_for_calculation(db, calculation.calculation_id, claim.user_id)
+        evidence_version = evidence[0].evidence_version if evidence else None
+
+    review.opinion = opinion.strip() if opinion else None
+    review.final_result = {
+        "eligibility_result": final_eligibility.value,
+        "assessment_id": str(assessment.assessment_id),
+        "calculation_id": str(calculation.calculation_id) if calculation else None,
+        "evidence_version": evidence_version,
+        "additional_documents_processed": True,
+    }
+    ReviewStateMachine.transition(review, ReviewStatus.APPROVED)
+    complete_review(db, review)
+    return assessment, calculation
+
+
 def mark_undetermined(review: Review, reason: str, opinion: str | None) -> None:
     if not reason.strip():
         raise DomainError("REVIEW_REASON_REQUIRED", "Reason is required", 422)

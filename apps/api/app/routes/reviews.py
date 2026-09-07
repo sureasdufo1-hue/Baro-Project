@@ -25,6 +25,7 @@ from domain.review.service import (
     assigned_review,
     complete_review,
     create_review,
+    finalize_after_additional_documents,
     mark_undetermined,
     modify_review,
     request_documents,
@@ -73,6 +74,12 @@ class DocumentRequest(BaseModel):
 class UndeterminedRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
     opinion: str | None = Field(default=None, max_length=4000)
+
+
+class FinalizeAfterAdditionalDocumentsRequest(BaseModel):
+    final_eligibility: EligibilityResult
+    opinion: str | None = Field(default=None, max_length=4000)
+    assessment_id: UUID | None = None
 
 
 def audit_review(
@@ -407,3 +414,52 @@ def resume_review_after_documents(
         "request_status": item.request_status,
         "submission_round": item.submission_round,
     }
+
+
+@router.post("/{review_id}/finalize", response_model=None)
+def finalize_review(
+    review_id: UUID,
+    data: FinalizeAfterAdditionalDocumentsRequest,
+    request: Request,
+    user: User = Depends(require_role(UserRole.ADJUSTER)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    review = expert_action(db, review_id, user)
+    before = dict(review.previous_result)
+    finalize_after_additional_documents(
+        db,
+        review,
+        user.user_id,
+        data.final_eligibility,
+        data.opinion,
+        data.assessment_id,
+    )
+    audit_review(db, request, user, review, AuditEventType.REVIEW_FINALIZE, before)
+    db.commit()
+    return review_view(review)
+
+
+@claim_router.post("/{claim_id}/reviews/{review_id}/finalize", response_model=None)
+def finalize_review_after_additional_documents(
+    claim_id: UUID,
+    review_id: UUID,
+    data: FinalizeAfterAdditionalDocumentsRequest,
+    request: Request,
+    user: User = Depends(require_role(UserRole.ADJUSTER)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    review = expert_action(db, review_id, user)
+    if review.claim_id != claim_id:
+        raise DomainError("REVIEW_CLAIM_MISMATCH", "Review does not belong to this claim", 409)
+    before = dict(review.previous_result)
+    finalize_after_additional_documents(
+        db,
+        review,
+        user.user_id,
+        data.final_eligibility,
+        data.opinion,
+        data.assessment_id,
+    )
+    audit_review(db, request, user, review, AuditEventType.REVIEW_FINALIZE, before)
+    db.commit()
+    return review_view(review)
