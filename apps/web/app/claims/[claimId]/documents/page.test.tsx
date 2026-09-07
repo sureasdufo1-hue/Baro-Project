@@ -3,7 +3,10 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import DocumentsPage from "./page";
 
-vi.mock("next/navigation", () => ({ useParams: () => ({ claimId: "claim-1" }) }));
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ claimId: "claim-1" }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 afterEach(() => vi.restoreAllMocks());
 

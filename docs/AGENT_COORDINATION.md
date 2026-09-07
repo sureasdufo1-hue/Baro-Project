@@ -36,8 +36,8 @@
 | 실제 업로드 API 경유 E2E (인증 부트스트랩 포함) | 완료 | `355251e` |
 | 브라우저 전체 여정 E2E (사용자 골든 패스) + 근거사슬 교착 수정 | 완료 | `355251e`, `dd646ad` |
 | 전문가 검토 브라우저 여정 E2E (Workflow A/B, admin UI) | 완료 | — |
-| 검토 생성·배정 Admin UI(`/review-admin`) + `GET /api/admin/adjusters` | 완료 | — |
-| 추가자료 제출 후 검토 종결 워크플로우(Finalize API, V2+ 산정·근거 연계, Admin UI) | 완료 | — |
+| 검토 생성·배정 Admin UI(`/review-admin`) + `GET /api/admin/adjusters` | 완료 | `cf64acd` |
+| 추가자료 제출 후 검토 종결 워크플로우(Finalize API, V2+ 산정·근거 연계, Admin UI) | 완료 | `aa69cd6` |
 | [이관] FactType 6종 확장(장해/실손/의료비) + 계산 엔진 확장 | 완료 (검증 후 커밋) | `d601e48` |
 | [이관] DB 마스터 시딩 스크립트 + 청구 E2E 테스트 | 완료 (검증 후 커밋) | `d601e48` |
 | Web 브랜딩/마스코트 이미지 정리 | 완료 (검증 후 커밋) | `57e3245` |

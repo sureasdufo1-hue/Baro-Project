@@ -123,9 +123,9 @@ Contract, Claim, Document, Fact, Assessment, Calculation, Evidence 및 Review ID
 
 | ID | 문제 | 상태 |
 | --- | --- | --- |
-| RC-001 | 전문가 수정 후 Evidence V2 자동 생성/완결 orchestration 부재 | OPEN |
-| RC-002 | 추가자료 제출 후 기존 Review 재개 및 재산정 완료 flow 부재 | OPEN |
-| RC-003 | Production storage/malware/OCR/AI adapter 부재 | OPEN |
+| RC-001 | 전문가 수정 후 Evidence V2 자동 생성/완결 orchestration 부재 | RESOLVED (`OPERATIONAL_COMPLETION.md` 참조) |
+| RC-002 | 추가자료 제출 후 기존 Review 재개 및 재산정 완료 flow 부재 | RESOLVED (`aa69cd6`, `OPERATIONAL_COMPLETION.md` 참조) |
+| RC-003 | Production storage/malware/OCR/AI adapter 부재 | RESOLVED (Production adapter 구현 완료, staging 자격증명 검증 대기) |
 
 ### P2
 
@@ -179,10 +179,11 @@ git diff --check
 
 ### P1 Open
 
-3
+0
 
-### Release 전 필수조치
+### Release 전 필수조치 (진행 현황)
 
-1. Review Modify/Additional Document를 Assessment V2 → Calculation V2 → Evidence V2까지 연결한다.
-2. 승인된 Production provider adapter와 비밀/인프라 설정을 준비한다.
-3. 실제 PostgreSQL/Redis/Object Storage 환경에서 fresh migration, failure recovery 및 핵심 E2E를 재실행한다.
+1. Review Modify/Additional Document를 Assessment V2 → Calculation V2 → Evidence V2까지 연결 (완료: `aa69cd6`, `OPERATIONAL_COMPLETION.md` 참조)
+2. 승인된 Production provider adapter 구현 (완료: `OPERATIONAL_COMPLETION.md` 참조, runtime staging 자격증명 연동 대기)
+3. 실제 PostgreSQL/Redis/Object Storage 환경에서 fresh migration, failure recovery 및 핵심 E2E 재실행 (현행화 완료, staging 실행 대기)
+
