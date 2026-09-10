@@ -18,6 +18,7 @@ from apps.api.app.routes import (
     facts,
     health,
     insurance_master,
+    intake,
     policy_db,
     reviews,
 )
@@ -90,3 +91,4 @@ app.include_router(evidence.claim_router)
 app.include_router(evidence.calculation_router)
 app.include_router(reviews.router)
 app.include_router(reviews.claim_router)
+app.include_router(intake.router)
