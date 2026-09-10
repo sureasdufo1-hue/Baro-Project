@@ -260,3 +260,34 @@ def test_build_report_nonexistent_claim(db_session: Session) -> None:
     with pytest.raises(DomainError) as exc_info:
         build_loss_assessment_report(db_session, uuid4())
     assert exc_info.value.code == "CLAIM_NOT_FOUND"
+
+
+def test_review_update_opinion(db_session: Session) -> None:
+    user = User(
+        email="adjuster_op@baro.local",
+        password_hash="hashed_pw",
+        display_name="이손해",
+        role=UserRole.ADJUSTER,
+        status=UserStatus.ACTIVE,
+    )
+    db_session.add(user)
+    db_session.flush()
+
+    review = Review(
+        claim_id=uuid4(),
+        reviewer_user_id=user.user_id,
+        review_type=ReviewType.GENERAL_CLAIM_REVIEW,
+        review_status=ReviewStatus.IN_PROGRESS,
+        reason="심사 진행 중",
+        opinion="초기 의견",
+    )
+    db_session.add(review)
+    db_session.commit()
+
+    review.opinion = "수정된 최종 의견: 정상 지급 결론."
+    db_session.commit()
+
+    updated = db_session.get(Review, review.review_id)
+    assert updated is not None
+    assert updated.opinion == "수정된 최종 의견: 정상 지급 결론."
+

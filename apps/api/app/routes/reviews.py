@@ -260,6 +260,19 @@ def accept(
     return review_view(review)
 
 
+@router.post("/{review_id}/opinion", response_model=None)
+def update_opinion(
+    review_id: UUID,
+    data: OpinionRequest,
+    user: User = Depends(require_role(UserRole.ADJUSTER)),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    review = expert_action(db, review_id, user)
+    review.opinion = data.opinion
+    db.commit()
+    return review_view(review)
+
+
 @router.post("/{review_id}/approve", response_model=None)
 def approve(
     review_id: UUID,

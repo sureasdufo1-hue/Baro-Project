@@ -43,6 +43,7 @@
 | Web 브랜딩/마스코트 이미지 정리 | 완료 (검증 후 커밋) | `57e3245` |
 | 시드 스크립트 업서트 모드(`--upsert`, SKIP 기본 유지) | 완료 | `d99cdeb` |
 | 손해사정보고서(Loss Assessment Report) 전용 양식 및 PDF/인쇄 출력 화면 (Step 1) | 완료 | `9549db6` |
+| 손해사정보고서 작성 워크스페이스 고도화(구조화 의견, 팩트/약관/산정식 자동 인용, 임시저장) (Step 2) | 완료 | — |
 
 ## 4. 공유 계약 로그
 
@@ -55,6 +56,7 @@
 | 2026-08-26 | API 스키마 | `GET /api/admin/adjusters` 추가(SYSTEM_ADMIN 전용, ADJUSTER 목록) | `/review-admin` 화면의 검토 배정 콤보박스 |
 | 2026-09-07 | API 스키마 / Audit | `POST /api/reviews/{id}/finalize`, `POST /api/claims/{claim_id}/reviews/{id}/finalize` 추가 (`AuditEventType.REVIEW_FINALIZE`) | Admin 검토 화면 연동 및 추가서류 후속 종결 자동산정(V2+) 완료 |
 | 2026-09-11 | API 스키마 | `GET /api/reviews/{id}/report`, `GET /api/claims/{id}/report` 추가 | 손해사정서 표준 서식 데이터 및 인쇄 뷰어(`/reviews/[id]/report`) 연동 |
+| 2026-09-11 | API 스키마 | `POST /api/reviews/{id}/opinion` 추가 | 손해사정서 의견 실시간 임시저장 및 단계별 구조화 워크스페이스 연동 |
 
 ## 5. 미해결 사항
 
