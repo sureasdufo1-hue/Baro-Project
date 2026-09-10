@@ -18,6 +18,7 @@ from domain.evidence.models import Evidence
 from domain.evidence.service import evidence_view
 from domain.fact.models import VerifiedFact
 from domain.review.models import AdditionalDocumentRequest, Review, ReviewStatus, ReviewType
+from domain.review.report import build_loss_assessment_report
 from domain.review.service import (
     accept_review,
     approve_review,
@@ -463,3 +464,35 @@ def finalize_review_after_additional_documents(
     audit_review(db, request, user, review, AuditEventType.REVIEW_FINALIZE, before)
     db.commit()
     return review_view(review)
+
+
+@router.get("/{review_id}/report", response_model=None)
+def get_review_loss_assessment_report(
+    review_id: UUID,
+    user: User = Depends(require_authenticated_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if user.role is UserRole.SYSTEM_ADMIN:
+        review = db.get(Review, review_id)
+        if review is None:
+            raise DomainError("REVIEW_NOT_FOUND", "Review was not found", 404)
+    elif user.role is UserRole.ADJUSTER:
+        review = assigned_review(db, review_id, user.user_id)
+    else:
+        raise DomainError("ACCESS_DENIED", "Expert permission is required", 403)
+    return build_loss_assessment_report(db, review.claim_id, review_id=review.review_id)
+
+
+@claim_router.get("/{claim_id}/report", response_model=None)
+def get_claim_loss_assessment_report(
+    claim_id: UUID,
+    user: User = Depends(require_authenticated_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    if user.role in {UserRole.SYSTEM_ADMIN, UserRole.ADJUSTER}:
+        claim = db.get(Claim, claim_id)
+        if claim is None:
+            raise DomainError("CLAIM_NOT_FOUND", "Claim was not found", 404)
+    else:
+        claim = owned_claim(db, claim_id, user.user_id)
+    return build_loss_assessment_report(db, claim.claim_id)

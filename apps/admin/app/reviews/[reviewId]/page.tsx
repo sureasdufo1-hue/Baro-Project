@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
+import Link from "next/link";
 import {useParams} from "next/navigation";
 import {useEffect,useState} from "react";
 const api=process.env.NEXT_PUBLIC_API_URL??"http://localhost:8000";const web=process.env.NEXT_PUBLIC_WEB_URL??"http://localhost:3000";
@@ -50,9 +51,26 @@ export default function ReviewDetail() {
         <h2>자동판단과 Evidence</h2>
         <p>{item.reason}</p>
         <pre>{JSON.stringify(item.previous_result, null, 2)}</pre>
-        <a href={`${web}/claims/${item.claim_id}/result`} target="_blank" rel="noreferrer">
-          결과·계산근거 열기
-        </a>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center", marginTop: "8px" }}>
+          <a href={`${web}/claims/${item.claim_id}/result`} target="_blank" rel="noreferrer">
+            결과·계산근거 열기
+          </a>
+          <Link
+            href={`/reviews/${reviewId}/report`}
+            style={{
+              padding: "6px 14px",
+              background: "#027a48",
+              color: "white",
+              borderRadius: "6px",
+              textDecoration: "none",
+              fontWeight: "bold",
+              fontSize: "13px",
+              display: "inline-block",
+            }}
+          >
+            📄 손해사정보고서 보기 / 인쇄
+          </Link>
+        </div>
       </section>
       <section className="card">
         <h2>전문가 Action</h2>

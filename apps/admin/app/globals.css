@@ -10,3 +10,20 @@ main { padding: 48px; } .card { background: white; padding: 28px; border-radius:
 .review-actions { display:flex; gap:8px; } button.reject { background:#b42318; } button.secondary { background:#475467; } button:disabled { opacity:.45; cursor:not-allowed; }
 .evidence { white-space:pre-wrap; line-height:1.5; padding:12px; background:#f8fafc; border-radius:8px; } textarea { min-height:76px; padding:10px; font:inherit; resize:vertical; }
 @media (max-width:800px) { .shell { grid-template-columns:1fr; } aside { padding:18px; } aside a { display:inline-block; margin:12px 16px 0 0; } main { padding:24px; } .review-check { grid-template-columns:1fr; } }
+@media print {
+  body { background: white !important; color: black !important; margin: 0 !important; }
+  .shell { display: block !important; }
+  aside, .no-print, nav, button { display: none !important; }
+  main { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+  #loss-assessment-document {
+    box-shadow: none !important;
+    padding: 0 !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+  @page {
+    size: A4;
+    margin: 12mm 15mm;
+  }
+}
+
