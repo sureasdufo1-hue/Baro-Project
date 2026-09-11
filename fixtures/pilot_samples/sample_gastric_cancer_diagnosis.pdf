@@ -1,0 +1,14 @@
+%PDF-1.4
+[삼성서울병원 진단서]
+환자성명: 박영희 (821104-2******)
+병록번호: SMC-2026-38291
+진단명: 위선암종 (Malignant neoplasm of stomach)
+FACT:DIAGNOSIS_CODE=C16.0|1.0
+FACT:DIAGNOSIS_NAME=Malignant neoplasm of stomach|1.0
+FACT:DIAGNOSIS_DATE=2026-06-15|1.0
+FACT:HOSPITAL_NAME=삼성서울병원|1.0
+진단확정일: 2026-06-15
+발급일자: 2026-06-20
+담당의사: 외과 전문의 박교수 (면허번호 39102호)
+비고: 위내시경 조직생검상 선암(Tubular adenocarcinoma) 확진
+%%EOF

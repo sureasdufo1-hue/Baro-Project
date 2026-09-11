@@ -1,0 +1,14 @@
+%PDF-1.4
+[연세세브란스병원 진단서]
+환자성명: 이민수 (950312-1******)
+병록번호: SEV-2026-77123
+진단명: 우측 경골 상단 골절 (Fracture of upper end of tibia, right)
+FACT:DIAGNOSIS_CODE=S82.1|1.0
+FACT:DIAGNOSIS_NAME=Fracture of upper end of tibia|1.0
+FACT:ACCIDENT_DATE=2026-08-01|1.0
+FACT:HOSPITAL_NAME=연세세브란스병원|1.0
+진단확정일: 2026-08-01
+발급일자: 2026-08-05
+담당의사: 정형외과 전문의 최교수 (면허번호 51203호)
+비고: 교통사고 외상 후 관혈적 정복 및 내고정술(ORIF) 시행
+%%EOF

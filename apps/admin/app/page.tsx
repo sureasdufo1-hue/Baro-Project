@@ -97,6 +97,17 @@ export default function AdminDashboard() {
             약관 검증 Queue 열기 →
           </Link>
         </article>
+
+        <article className="card">
+          <span className="badge">CUSTOMIZATION</span>
+          <h3 style={{ margin: "10px 0 6px 0" }}>⚙️ 손해사정사 직인/설정</h3>
+          <p className="muted" style={{ fontSize: "14px", margin: "0 0 14px 0" }}>
+            보고서에 인쇄될 손해사정사 인적사항, 자격번호, 직인(도장) 도안 및 워터마크 옵션을 관리합니다.
+          </p>
+          <Link href="/settings" style={{ color: "#155eef", fontWeight: "bold", textDecoration: "none" }}>
+            사정사/직인 설정 열기 →
+          </Link>
+        </article>
       </div>
 
       {/* Pilot Workflow Guide */}

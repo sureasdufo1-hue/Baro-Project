@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AdjusterProfileSettings, SETTINGS_STORAGE_KEY } from "../../../settings/page";
 
 const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -104,6 +105,12 @@ export default function LossAssessmentReportPage() {
   const [error, setError] = useState("");
 
   const [showStamp, setShowStamp] = useState(true);
+  const [showWatermark, setShowWatermark] = useState(false);
+  const [stampType, setStampType] = useState<"circular" | "oval" | "custom">("circular");
+  const [customStampImage, setCustomStampImage] = useState("");
+  const [stampRotation, setStampRotation] = useState(-8);
+  const [noticeStatement, setNoticeStatement] = useState("");
+
   const [editAdjuster, setEditAdjuster] = useState(false);
   const [adjusterName, setAdjusterName] = useState("");
   const [adjusterLicense, setAdjusterLicense] = useState("");
@@ -123,10 +130,26 @@ export default function LossAssessmentReportPage() {
         }
         const data: ReportData = await res.json();
         setReport(data);
-        setAdjusterName(data.adjuster.name);
-        setAdjusterLicense(data.adjuster.license_number);
-        setAdjusterOffice(data.adjuster.office_name);
-        setAdjusterContact(data.adjuster.contact);
+
+        // Load saved adjuster settings from localStorage if configured
+        let appliedSettings: Partial<AdjusterProfileSettings> = {};
+        try {
+          const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+          if (raw) appliedSettings = JSON.parse(raw);
+        } catch {
+          // Ignore parse errors
+        }
+
+        setAdjusterName(appliedSettings.name || data.adjuster.name);
+        setAdjusterLicense(appliedSettings.license || data.adjuster.license_number);
+        setAdjusterOffice(appliedSettings.office || data.adjuster.office_name);
+        setAdjusterContact(appliedSettings.contact || data.adjuster.contact);
+        if (appliedSettings.stampType) setStampType(appliedSettings.stampType);
+        if (appliedSettings.customStampImage) setCustomStampImage(appliedSettings.customStampImage);
+        if (typeof appliedSettings.stampRotation === "number") setStampRotation(appliedSettings.stampRotation);
+        if (typeof appliedSettings.showStampByDefault === "boolean") setShowStamp(appliedSettings.showStampByDefault);
+        if (typeof appliedSettings.showWatermarkByDefault === "boolean") setShowWatermark(appliedSettings.showWatermarkByDefault);
+        if (appliedSettings.noticeStatement) setNoticeStatement(appliedSettings.noticeStatement);
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
       } finally {
@@ -243,7 +266,7 @@ ${report.review?.opinion ?? "약관 및 제출된 의무기록에 근거하여 �
             onClick={() => setEditAdjuster(!editAdjuster)}
             style={{ background: "#344054", fontSize: "13px", padding: "8px 12px" }}
           >
-            {editAdjuster ? "설정 닫기" : "사정사 정보 수정"}
+            {editAdjuster ? "패널 닫기" : "사정사 정보 수정"}
           </button>
           <button
             onClick={() => setShowStamp(!showStamp)}
@@ -251,6 +274,25 @@ ${report.review?.opinion ?? "약관 및 제출된 의무기록에 근거하여 �
           >
             {showStamp ? "직인 숨김" : "직인 표시"}
           </button>
+          <button
+            onClick={() => setShowWatermark(!showWatermark)}
+            style={{ background: showWatermark ? "#b54708" : "#344054", fontSize: "13px", padding: "8px 12px" }}
+          >
+            {showWatermark ? "초안 워터마크 ON" : "초안 워터마크 OFF"}
+          </button>
+          <Link
+            href="/settings"
+            style={{
+              padding: "8px 12px",
+              background: "#475467",
+              color: "white",
+              borderRadius: "6px",
+              textDecoration: "none",
+              fontSize: "13px",
+            }}
+          >
+            ⚙️ 사정사 설정
+          </Link>
           <button
             onClick={() => void handleCopy()}
             style={{ background: "#027a48", fontSize: "13px", padding: "8px 14px" }}
@@ -282,7 +324,37 @@ ${report.review?.opinion ?? "약관 및 제출된 의무기록에 근거하여 �
             padding: "16px 20px",
           }}
         >
-          <h4 style={{ margin: "0 0 10px 0" }}>손해사정사 표기 정보 (인쇄용)</h4>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <h4 style={{ margin: 0 }}>손해사정사 표기 정보 (인쇄용 실시간 수정)</h4>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const profile: AdjusterProfileSettings = {
+                      name: adjusterName,
+                      license: adjusterLicense,
+                      office: adjusterOffice,
+                      contact: adjusterContact,
+                      stampType,
+                      customStampImage,
+                      stampRotation,
+                      showStampByDefault: showStamp,
+                      showWatermarkByDefault: showWatermark,
+                      noticeStatement,
+                    };
+                    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(profile));
+                    alert("✓ 현재 사정사 정보가 모든 보고서 기본값으로 저장되었습니다.");
+                  } catch {
+                    alert("저장 중 오류가 발생했습니다.");
+                  }
+                }}
+                style={{ background: "#067647", fontSize: "12px", padding: "6px 12px" }}
+              >
+                💾 이 정보를 기본값으로 저장
+              </button>
+            </div>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <label style={{ fontSize: "13px" }}>
               사정사 성명
@@ -324,6 +396,8 @@ ${report.review?.opinion ?? "약관 및 제출된 의무기록에 근거하여 �
       <article
         id="loss-assessment-document"
         style={{
+          position: "relative",
+          overflow: "hidden",
           background: "#ffffff",
           color: "#111827",
           padding: "50px 60px",
@@ -333,8 +407,30 @@ ${report.review?.opinion ?? "약관 및 제출된 의무기록에 근거하여 �
           lineHeight: "1.6",
         }}
       >
+        {/* Optional DRAFT Watermark */}
+        {showWatermark && (
+          <div
+            style={{
+              position: "absolute",
+              top: "45%",
+              left: "50%",
+              transform: "translate(-50%, -50%) rotate(-30deg)",
+              fontSize: "84px",
+              fontWeight: 900,
+              color: "rgba(220, 38, 38, 0.07)",
+              letterSpacing: "14px",
+              pointerEvents: "none",
+              userSelect: "none",
+              zIndex: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
+            초안 (DRAFT)
+          </div>
+        )}
+
         {/* Document Header */}
-        <header style={{ textAlign: "center", marginBottom: "36px", borderBottom: "2px solid #111827", paddingBottom: "20px" }}>
+        <header style={{ position: "relative", zIndex: 1, textAlign: "center", marginBottom: "36px", borderBottom: "2px solid #111827", paddingBottom: "20px" }}>
           <h1
             style={{
               fontSize: "30px",
@@ -699,10 +795,14 @@ ${report.review?.opinion ?? "약관 및 제출된 의무기록에 근거하여 �
             pageBreakInside: "avoid",
           }}
         >
-          <p style={{ fontSize: "14px", fontWeight: "bold", margin: "0 0 16px 0", color: "#374151" }}>
-            위와 같이 보험업법 제185조 및 해당 보험약관에 의하여 공정하고 객관적으로
-            <br />
-            손해사정을 수행하고 본 손해사정서를 작성·교부합니다.
+          <p style={{ fontSize: "14px", fontWeight: "bold", margin: "0 0 16px 0", color: "#374151", whiteSpace: "pre-line" }}>
+            {noticeStatement || (
+              <>
+                위와 같이 보험업법 제185조 및 해당 보험약관에 의하여 공정하고 객관적으로
+                <br />
+                손해사정을 수행하고 본 손해사정서를 작성·교부합니다.
+              </>
+            )}
           </p>
 
           <p style={{ fontSize: "14px", margin: "0 0 24px 0", color: "#111827" }}>
@@ -728,29 +828,73 @@ ${report.review?.opinion ?? "약관 및 제출된 의무기록에 근거하여 �
 
             {/* Official Seal / Stamp */}
             {showStamp && (
-              <div
-                style={{
-                  width: "72px",
-                  height: "72px",
-                  border: "3px solid #dc2626",
-                  borderRadius: "50%",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  color: "#dc2626",
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                  lineHeight: "1.2",
-                  transform: "rotate(-8deg)",
-                  boxShadow: "inset 0 0 4px rgba(220, 38, 38, 0.2)",
-                  userSelect: "none",
-                }}
-              >
-                <span>손해</span>
-                <span style={{ fontSize: "13px", letterSpacing: "1px" }}>사정사</span>
-                <span>[인]</span>
-              </div>
+              stampType === "custom" && customStampImage ? (
+                <div
+                  style={{
+                    width: "72px",
+                    height: "72px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transform: `rotate(${stampRotation}deg)`,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={customStampImage}
+                    alt="손해사정사 직인"
+                    style={{ maxWidth: "72px", maxHeight: "72px", objectFit: "contain" }}
+                  />
+                </div>
+              ) : stampType === "oval" ? (
+                <div
+                  style={{
+                    width: "80px",
+                    height: "56px",
+                    border: "3px solid #dc2626",
+                    borderRadius: "50%",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    color: "#dc2626",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    lineHeight: "1.2",
+                    transform: `rotate(${stampRotation}deg)`,
+                    boxShadow: "inset 0 0 3px rgba(220, 38, 38, 0.25)",
+                    userSelect: "none",
+                  }}
+                >
+                  <span style={{ fontSize: "9px" }}>손해사정사</span>
+                  <span style={{ fontSize: "13px", letterSpacing: "1px" }}>{adjusterName.slice(0, 3) || "손사"}</span>
+                  <span style={{ fontSize: "9px" }}>[인]</span>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    width: "72px",
+                    height: "72px",
+                    border: "3px solid #dc2626",
+                    borderRadius: "50%",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    color: "#dc2626",
+                    fontSize: "11px",
+                    fontWeight: "bold",
+                    lineHeight: "1.2",
+                    transform: `rotate(${stampRotation}deg)`,
+                    boxShadow: "inset 0 0 4px rgba(220, 38, 38, 0.2)",
+                    userSelect: "none",
+                  }}
+                >
+                  <span>손해</span>
+                  <span style={{ fontSize: "13px", letterSpacing: "1px" }}>{adjusterName.slice(0, 3) || "사정사"}</span>
+                  <span>[인]</span>
+                </div>
+              )
             )}
           </div>
         </footer>

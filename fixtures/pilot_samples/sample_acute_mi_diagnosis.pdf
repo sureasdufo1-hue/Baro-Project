@@ -1,0 +1,14 @@
+%PDF-1.4
+[서울아산병원 진단서]
+환자성명: 홍길동 (750428-1******)
+병록번호: ASAN-2026-09118
+진단명: 급성 심근경색증 (Acute myocardial infarction, unspecified)
+FACT:DIAGNOSIS_CODE=I21.9|1.0
+FACT:DIAGNOSIS_NAME=Acute myocardial infarction|1.0
+FACT:DIAGNOSIS_DATE=2026-07-10|1.0
+FACT:HOSPITAL_NAME=서울아산병원|1.0
+진단확정일: 2026-07-10
+발급일자: 2026-07-15
+담당의사: 순환기내과 전문의 김교수 (면허번호 48201호)
+비고: 관상동맥 조영술 및 스텐트 삽입술(PCI) 시행 완료
+%%EOF

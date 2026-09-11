@@ -185,8 +185,68 @@ export default function FastIntakePage() {
     }
   }
 
+  function createSampleDiagnosisFile(type: "AMI" | "CANCER" | "FRACTURE"): File {
+    if (type === "AMI") {
+      const text = `%PDF-1.4
+[의료기관: 서울아산병원 심혈관센터]
+환자성명: 김철수 (780820-1******)
+병록번호: ASAN-2026-09118
+진단명: 급성 심근경색증 (Acute myocardial infarction, unspecified)
+FACT:DIAGNOSIS_CODE=I21.9|1.0
+FACT:DIAGNOSIS_NAME=Acute myocardial infarction|1.0
+FACT:DIAGNOSIS_DATE=2026-07-10|1.0
+FACT:HOSPITAL_NAME=서울아산병원|1.0
+진단일자: 2026년 07월 10일
+발급일자: 2026년 07월 15일
+담당의사: 순환기내과 전문의 김교수 (면허 48201호)
+%%EOF`;
+      const blob = new Blob([text], { type: "application/pdf" });
+      return new File([blob], "서울아산병원_진단서_급성심근경색증_I219.pdf", { type: "application/pdf" });
+    } else if (type === "CANCER") {
+      const text = `%PDF-1.4
+[의료기관: 삼성서울병원 소화기암센터]
+환자성명: 박영희 (821104-2******)
+병록번호: SMC-2026-38291
+진단명: 위선암종 (Malignant neoplasm of stomach)
+FACT:DIAGNOSIS_CODE=C16.0|1.0
+FACT:DIAGNOSIS_NAME=Malignant neoplasm of stomach|1.0
+FACT:DIAGNOSIS_DATE=2026-06-15|1.0
+FACT:HOSPITAL_NAME=삼성서울병원|1.0
+진단일자: 2026년 06월 15일
+발급일자: 2026년 06월 20일
+담당의사: 외과 전문의 박교수 (면허 39102호)
+%%EOF`;
+      const blob = new Blob([text], { type: "application/pdf" });
+      return new File([blob], "삼성서울병원_진단서_위암_C160.pdf", { type: "application/pdf" });
+    } else {
+      const text = `%PDF-1.4
+[의료기관: 연세세브란스병원 정형외과]
+환자성명: 이민수 (950312-1******)
+병록번호: SEV-2026-77123
+진단명: 우측 경골 상단 골절 (Fracture of upper end of tibia, right)
+FACT:DIAGNOSIS_CODE=S82.1|1.0
+FACT:DIAGNOSIS_NAME=Fracture of upper end of tibia|1.0
+FACT:ACCIDENT_DATE=2026-08-01|1.0
+FACT:HOSPITAL_NAME=연세세브란스병원|1.0
+진단일자: 2026년 08월 01일
+발급일자: 2026년 08월 05일
+담당의사: 정형외과 전문의 최교수 (면허 51203호)
+%%EOF`;
+      const blob = new Blob([text], { type: "application/pdf" });
+      return new File([blob], "연세세브란스_진단서_경골골절_S821.pdf", { type: "application/pdf" });
+    }
+  }
+
   // Presets / Quick Fillers
   function applyPreset(type: "AMI" | "CANCER" | "FRACTURE") {
+    const sampleFile = createSampleDiagnosisFile(type);
+    setFiles([
+      {
+        file: sampleFile,
+        documentType: "DIAGNOSIS_CERTIFICATE",
+      },
+    ]);
+
     if (type === "AMI") {
       setInsuredName("김철수");
       setInsuredBirthDate("1978-08-20");
@@ -894,6 +954,41 @@ export default function FastIntakePage() {
             <p style={{ margin: "6px 0 0 0", fontSize: "12px", color: "#667085" }}>
               지원 형식: PDF, JPG, PNG, HEIC (파일별 최대 25MB)
             </p>
+            <div style={{ marginTop: "12px", display: "flex", justifyContent: "center", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  const f = createSampleDiagnosisFile("AMI");
+                  setFiles((prev) => [...prev, { file: f, documentType: "DIAGNOSIS_CERTIFICATE" }]);
+                }}
+                style={{ fontSize: "12px", padding: "6px 10px" }}
+              >
+                + 샘플 진단서(급성심근경색증) 즉시 첨부
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  const f = createSampleDiagnosisFile("CANCER");
+                  setFiles((prev) => [...prev, { file: f, documentType: "DIAGNOSIS_CERTIFICATE" }]);
+                }}
+                style={{ fontSize: "12px", padding: "6px 10px" }}
+              >
+                + 샘플 진단서(위암) 즉시 첨부
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  const f = createSampleDiagnosisFile("FRACTURE");
+                  setFiles((prev) => [...prev, { file: f, documentType: "DIAGNOSIS_CERTIFICATE" }]);
+                }}
+                style={{ fontSize: "12px", padding: "6px 10px" }}
+              >
+                + 샘플 진단서(골절) 즉시 첨부
+              </button>
+            </div>
           </div>
 
           {files.length > 0 && (
